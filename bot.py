@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 import random
@@ -153,9 +154,27 @@ async def pidor(update: Update, context: ContextTypes.DEFAULT_TYPE):
     save_data(data)
 
     reason = random.choice(FUNNY_REASONS).format(name=name)
-    await update.message.reply_text(
-        f"🔍 Ищем пидора дня...\n\n{reason}\n\n🏆 Пидор дня — {name}!"
-    )
+
+    search_phrases = [
+        "🔍 Начинаю поиск пидора дня...",
+        "🔍 Сканирую участников чата...",
+        "🔍 Запускаю секретный алгоритм отбора...",
+        "🔍 Консультируюсь с высшими силами...",
+    ]
+    almost_phrases = [
+        "👀 Уже почти... кандидат найден, проверяю данные...",
+        "👀 Теплее, теплее... база данных обрабатывается...",
+        "👀 Вот-вот... финальная верификация...",
+        "👀 Почти готово... подписываю приказ...",
+    ]
+
+    msg = await update.message.reply_text(random.choice(search_phrases))
+    await asyncio.sleep(random.uniform(2, 3))
+
+    await msg.edit_text(random.choice(almost_phrases))
+    await asyncio.sleep(random.uniform(2, 3))
+
+    await msg.edit_text(f"{reason}\n\n🏆 Пидор дня — {name}!")
 
 
 async def pidorstat(update: Update, context: ContextTypes.DEFAULT_TYPE):
