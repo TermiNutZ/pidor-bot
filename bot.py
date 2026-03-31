@@ -25,6 +25,14 @@ FUNNY_REASONS = [
     "По результатам тайного голосования: {name} набрал 146% голосов 📊",
 ]
 
+WELCOME_MESSAGES = [
+    "Добро пожаловать в рулетку, {name}! 🎰 Теперь ты участник ежедневного розыгрыша звания пидора дня. Удачи... она тебе понадобится.",
+    "{name} вошёл в чат и автоматически добавлен в список кандидатов на звание пидора дня 🏆 Поздравляем!",
+    "О, {name}! Ты как раз вовремя — у нас тут ежедневная лотерея 🎟️ Выигрыш гарантирован каждому... рано или поздно.",
+    "Привет, {name}! 👋 Добро пожаловать в наш уютный чат, где каждый день кто-то становится пидором. Сегодня это можешь быть ты!",
+    "{name} присоединился к игре ☠️ Барабан крутится, шарик катится... Добро пожаловать в рулетку пидора дня!",
+]
+
 
 def load_data() -> dict:
     if os.path.exists(DATA_FILE):
@@ -50,6 +58,13 @@ def get_display_name(user) -> str:
     return user.first_name or user.username or str(user.id)
 
 
+async def register_member(chat, user_id: str, name: str, username) -> bool:
+    """Добавляет участника. Возвращает True если участник новый."""
+    is_new = user_id not in chat["members"]
+    chat["members"][user_id] = {"name": name, "username": username}
+    return is_new
+
+
 async def track_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.effective_user or not update.effective_chat:
         return
@@ -57,15 +72,35 @@ async def track_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     user = update.effective_user
-    chat_id = str(update.effective_chat.id)
+    if user.is_bot:
+        return
 
+    chat_id = str(update.effective_chat.id)
     data = load_data()
     chat = get_chat_data(data, chat_id)
 
-    chat["members"][str(user.id)] = {
-        "name": get_display_name(user),
-        "username": user.username,
-    }
+    is_new = await register_member(chat, str(user.id), get_display_name(user), user.username)
+    save_data(data)
+
+    if is_new:
+        msg = random.choice(WELCOME_MESSAGES).format(name=get_display_name(user))
+        await update.message.reply_text(msg)
+
+
+async def new_chat_members(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Срабатывает когда кто-то вступает в группу."""
+    chat_id = str(update.effective_chat.id)
+    data = load_data()
+    chat = get_chat_data(data, chat_id)
+
+    for user in update.message.new_chat_members:
+        if user.is_bot:
+            continue
+        is_new = await register_member(chat, str(user.id), get_display_name(user), user.username)
+        if is_new:
+            msg = random.choice(WELCOME_MESSAGES).format(name=get_display_name(user))
+            await update.message.reply_text(msg)
+
     save_data(data)
 
 
@@ -80,17 +115,18 @@ async def pidor(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = load_data()
     chat = get_chat_data(data, chat_id)
 
-    # Регистрируем вызывающего
+    # Явно регистрируем вызывающего, если его ещё нет
     user = update.effective_user
-    chat["members"][str(user.id)] = {
-        "name": get_display_name(user),
-        "username": user.username,
-    }
+    is_new = await register_member(chat, str(user.id), get_display_name(user), user.username)
+    if is_new:
+        msg = random.choice(WELCOME_MESSAGES).format(name=get_display_name(user))
+        await update.message.reply_text(msg)
 
     members = chat["members"]
     if len(members) < 2:
         await update.message.reply_text(
-            "Слишком мало участников! Пусть люди сначала напишут что-нибудь в чат."
+            f"Пока ты один в списке участников, {get_display_name(user)}. "
+            "Пусть остальные напишут что-нибудь в чат или вызовут /pidor!"
         )
         save_data(data)
         return
@@ -101,7 +137,7 @@ async def pidor(update: Update, context: ContextTypes.DEFAULT_TYPE):
         winner = members.get(winner_id, {})
         name = winner.get("name", "Неизвестный")
         await update.message.reply_text(
-            f"Пидор дня уже выбран! 🏆\n\nСегодня это — {name}\n\nРезультат менятся завтра."
+            f"Пидор дня уже выбран! 🏆\n\nСегодня это — {name}\n\nРезультат меняется завтра."
         )
         save_data(data)
         return
@@ -161,8 +197,8 @@ def main():
 
     app.add_handler(CommandHandler("pidor", pidor))
     app.add_handler(CommandHandler("pidorstat", pidorstat))
+    app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, new_chat_members))
     app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, track_member))
-    app.add_handler(MessageHandler(filters.COMMAND, track_member))
 
     print("Бот запущен!")
     app.run_polling()
