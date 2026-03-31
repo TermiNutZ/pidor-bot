@@ -174,7 +174,11 @@ async def pidor(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await msg.edit_text(random.choice(almost_phrases))
     await asyncio.sleep(random.uniform(2, 3))
 
-    await msg.edit_text(f"{reason}\n\n🏆 Пидор дня — {name}!")
+    mention = f'<a href="tg://user?id={winner_id}">{name}</a>'
+    await msg.edit_text(
+        f"{reason}\n\n🏆 Пидор дня — {mention}!",
+        parse_mode="HTML",
+    )
 
 
 async def pidorstat(update: Update, context: ContextTypes.DEFAULT_TYPE):
