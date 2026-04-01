@@ -3,11 +3,14 @@ import json
 import os
 import random
 from datetime import date
-from telegram import Update
+from telegram import Bot, Update
 from telegram.ext import (
     ApplicationBuilder, CommandHandler, MessageHandler,
     PollAnswerHandler, filters, ContextTypes,
 )
+
+# poll_id -> asyncio.Task (таймаут)
+_battle_timers: dict[str, asyncio.Task] = {}
 
 DATA_FILE = "data.json"
 
@@ -226,8 +229,10 @@ async def pidorstat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("\n".join(lines))
 
 
-async def _finish_battle(context: ContextTypes.DEFAULT_TYPE, poll_id: str):
+async def _finish_battle(bot: Bot, poll_id: str):
     """Завершает батл: останавливает опрос и объявляет победителя."""
+    _battle_timers.pop(poll_id, None)
+
     data = load_data()
     polls = data.get("polls", {})
     battle = polls.get(poll_id)
@@ -243,7 +248,7 @@ async def _finish_battle(context: ContextTypes.DEFAULT_TYPE, poll_id: str):
     members = data.get(chat_id, {}).get("members", {})
 
     try:
-        poll_result = await context.bot.stop_poll(chat_id=chat_id, message_id=message_id)
+        poll_result = await bot.stop_poll(chat_id=chat_id, message_id=message_id)
     except Exception:
         return
 
@@ -271,17 +276,16 @@ async def _finish_battle(context: ContextTypes.DEFAULT_TYPE, poll_id: str):
     else:
         result_line = f"Победитель — {mention}! 🏆"
 
-    await context.bot.send_message(
+    await bot.send_message(
         chat_id=chat_id,
         text=f"⚔️ Батл завершён!\n\n{result_line}",
         parse_mode="HTML",
     )
 
 
-async def battle_timeout_job(context: ContextTypes.DEFAULT_TYPE):
-    """Job: закрыть батл по таймауту."""
-    poll_id = context.job.data
-    await _finish_battle(context, poll_id)
+async def _battle_timeout(bot: Bot, poll_id: str):
+    await asyncio.sleep(BATTLE_CLOSE_SECONDS)
+    await _finish_battle(bot, poll_id)
 
 
 async def battlestat(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -369,12 +373,8 @@ async def battle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     }
     save_data(data)
 
-    context.job_queue.run_once(
-        battle_timeout_job,
-        when=BATTLE_CLOSE_SECONDS,
-        data=poll_id,
-        name=f"battle_{poll_id}",
-    )
+    task = asyncio.create_task(_battle_timeout(context.bot, poll_id))
+    _battle_timers[poll_id] = task
 
 
 async def poll_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -397,12 +397,10 @@ async def poll_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Все проголосовали?
     if len(battle["voted"]) >= battle["total_voters"]:
-        # Отменяем таймаут-джоб
-        jobs = context.job_queue.get_jobs_by_name(f"battle_{poll_id}")
-        for job in jobs:
-            job.schedule_removal()
-
-        await _finish_battle(context, poll_id)
+        timer = _battle_timers.pop(poll_id, None)
+        if timer:
+            timer.cancel()
+        await _finish_battle(context.bot, poll_id)
 
 
 def main():
