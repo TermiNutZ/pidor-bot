@@ -557,12 +557,7 @@ async def _quiplash_collect_phase(bot: Bot, chat_id: str, prompt_message_id: int
     answer_list = list(answers.items())
     state["answer_list"] = answer_list
 
-    options = []
-    for _, ans in answer_list:
-        text = ans["text"]
-        if len(text) > 100:
-            text = text[:97] + "..."
-        options.append(text)
+    options = [ans["name"][:100] for _, ans in answer_list]
 
     # Telegram позволяет максимум 10 вариантов в опросе
     if len(options) > 10:
