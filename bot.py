@@ -300,6 +300,14 @@ async def battle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         save_data(data)
         return
 
+    today = str(date.today())
+    if chat.get("last_battle") == today:
+        await update.message.reply_text("Батл сегодня уже был! Приходи завтра ⚔️")
+        save_data(data)
+        return
+
+    chat["last_battle"] = today
+
     fighter_ids = random.sample(list(members.keys()), 2)
     names = [members[fid]["name"] for fid in fighter_ids]
     question = random.choice(BATTLE_QUESTIONS)
