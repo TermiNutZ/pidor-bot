@@ -486,18 +486,16 @@ async def _finish_quiplash_vote(bot: Bot, chat_id: str):
     ql_stats[winner_id] = ql_stats.get(winner_id, 0) + 1
     save_data(data)
 
-    tied = len(top_indices) > 1
-    if tied:
+    if len(top_indices) > 1:
         result_line = f"Ничья по голосам! Жребий выбрал {mention} 🎲"
     else:
         result_line = f"Победитель — {mention}! 🏆"
 
-    # Показываем авторство всех шуток
-    lines = [f"🎭 Quiplash завершён!\n\n{result_line}\n\nАвторство шуток:"]
-    for uid, ans in answer_list:
-        lines.append(f'• <a href="tg://user?id={uid}">{ans["name"]}</a>: {ans["text"]}')
-
-    await bot.send_message(chat_id=chat_id, text="\n".join(lines), parse_mode="HTML")
+    await bot.send_message(
+        chat_id=chat_id,
+        text=f"🎭 Quiplash завершён!\n\n{result_line}",
+        parse_mode="HTML",
+    )
 
 
 async def _quiplash_vote_timeout(bot: Bot, chat_id: str, poll_id: str):
