@@ -4,9 +4,14 @@ import os
 import random
 from datetime import date
 from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
+from telegram.ext import (
+    ApplicationBuilder, CommandHandler, MessageHandler,
+    PollAnswerHandler, filters, ContextTypes,
+)
 
 DATA_FILE = "data.json"
+
+BATTLE_CLOSE_SECONDS = 3 * 60 * 60  # 3 часа
 
 FUNNY_REASONS = [
     "Звёзды сошлись именно сегодня для {name} ⭐",
@@ -32,6 +37,20 @@ WELCOME_MESSAGES = [
     "О, {name}! Ты как раз вовремя — у нас тут ежедневная лотерея 🎟️ Выигрыш гарантирован каждому... рано или поздно.",
     "Привет, {name}! 👋 Добро пожаловать в наш уютный чат, где каждый день кто-то становится пидором. Сегодня это можешь быть ты!",
     "{name} присоединился к игре ☠️ Барабан крутится, шарик катится... Добро пожаловать в рулетку пидора дня!",
+]
+
+BATTLE_QUESTIONS = [
+    "Кто победит 1 на 1 на миду?",
+    "Кто первый сдохнет в зомби-апокалипсисе?",
+    "Кто съест больше шаурмы за раз?",
+    "Кто скорее вступит в секту?",
+    "Кого первым съедят в голодные времена?",
+    "Кто скорее станет бомжом?",
+    "У кого больше?",
+    "Кто более подозрительный?",
+    "Кого оставят на тонущем корабле?",
+    "Кого сыграет Дуэйн Скала Джонсон?",
+    "Кто сожрёт последний кусок пиццы без спроса?",
 ]
 
 
@@ -89,7 +108,6 @@ async def track_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def new_chat_members(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Срабатывает когда кто-то вступает в группу."""
     chat_id = str(update.effective_chat.id)
     data = load_data()
     chat = get_chat_data(data, chat_id)
@@ -116,7 +134,6 @@ async def pidor(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = load_data()
     chat = get_chat_data(data, chat_id)
 
-    # Явно регистрируем вызывающего, если его ещё нет
     user = update.effective_user
     is_new = await register_member(chat, str(user.id), get_display_name(user), user.username)
     if is_new:
@@ -132,7 +149,6 @@ async def pidor(update: Update, context: ContextTypes.DEFAULT_TYPE):
         save_data(data)
         return
 
-    # Уже выбирали сегодня?
     if today in chat["history"]:
         winner_id = chat["history"][today]
         winner = members.get(winner_id, {})
@@ -143,7 +159,6 @@ async def pidor(update: Update, context: ContextTypes.DEFAULT_TYPE):
         save_data(data)
         return
 
-    # Выбираем победителя
     winner_id = random.choice(list(members.keys()))
     winner = members[winner_id]
     name = winner["name"]
@@ -211,6 +226,143 @@ async def pidorstat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("\n".join(lines))
 
 
+async def _finish_battle(context: ContextTypes.DEFAULT_TYPE, poll_id: str):
+    """Завершает батл: останавливает опрос и объявляет победителя."""
+    data = load_data()
+    polls = data.get("polls", {})
+    battle = polls.get(poll_id)
+    if not battle or battle.get("finished"):
+        return
+
+    battle["finished"] = True
+    save_data(data)
+
+    chat_id = battle["chat_id"]
+    message_id = battle["message_id"]
+    fighters = battle["fighters"]
+    members = data.get(chat_id, {}).get("members", {})
+
+    try:
+        poll_result = await context.bot.stop_poll(chat_id=chat_id, message_id=message_id)
+    except Exception:
+        return
+
+    options = poll_result.options
+    votes = [o.voter_count for o in options]
+
+    if votes[0] > votes[1]:
+        winner_id = fighters[0]
+    elif votes[1] > votes[0]:
+        winner_id = fighters[1]
+    else:
+        winner_id = random.choice(fighters)
+
+    winner_name = members.get(winner_id, {}).get("name", "Неизвестный")
+    mention = f'<a href="tg://user?id={winner_id}">{winner_name}</a>'
+
+    if votes[0] == votes[1]:
+        result_line = f"Ничья! Но жребий пал на {mention} 🎲"
+    else:
+        result_line = f"Победитель — {mention}! 🏆"
+
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text=f"⚔️ Батл завершён!\n\n{result_line}",
+        parse_mode="HTML",
+    )
+
+
+async def battle_timeout_job(context: ContextTypes.DEFAULT_TYPE):
+    """Job: закрыть батл по таймауту."""
+    poll_id = context.job.data
+    await _finish_battle(context, poll_id)
+
+
+async def battle(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_chat.type == "private":
+        await update.message.reply_text("Эта команда работает только в групповых чатах!")
+        return
+
+    chat_id = str(update.effective_chat.id)
+    data = load_data()
+    chat = get_chat_data(data, chat_id)
+
+    # Регистрируем вызывающего
+    user = update.effective_user
+    is_new = await register_member(chat, str(user.id), get_display_name(user), user.username)
+    if is_new:
+        msg = random.choice(WELCOME_MESSAGES).format(name=get_display_name(user))
+        await update.message.reply_text(msg)
+
+    members = chat["members"]
+    if len(members) < 2:
+        await update.message.reply_text("Нужно хотя бы 2 участника для батла!")
+        save_data(data)
+        return
+
+    fighter_ids = random.sample(list(members.keys()), 2)
+    names = [members[fid]["name"] for fid in fighter_ids]
+    question = random.choice(BATTLE_QUESTIONS)
+    total_voters = len(members)
+
+    poll_msg = await context.bot.send_poll(
+        chat_id=chat_id,
+        question=f"⚔️ {question}",
+        options=names,
+        is_anonymous=False,
+    )
+
+    poll_id = poll_msg.poll.id
+
+    if "polls" not in data:
+        data["polls"] = {}
+
+    data["polls"][poll_id] = {
+        "chat_id": chat_id,
+        "message_id": poll_msg.message_id,
+        "fighters": fighter_ids,
+        "total_voters": total_voters,
+        "voted": [],
+        "finished": False,
+    }
+    save_data(data)
+
+    context.job_queue.run_once(
+        battle_timeout_job,
+        when=BATTLE_CLOSE_SECONDS,
+        data=poll_id,
+        name=f"battle_{poll_id}",
+    )
+
+
+async def poll_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Срабатывает когда кто-то голосует в опросе."""
+    answer = update.poll_answer
+    poll_id = answer.poll_id
+    user_id = str(answer.user.id)
+
+    data = load_data()
+    polls = data.get("polls", {})
+    battle = polls.get(poll_id)
+
+    if not battle or battle.get("finished"):
+        return
+
+    if user_id not in battle["voted"]:
+        battle["voted"].append(user_id)
+
+    save_data(data)
+
+    # Все проголосовали?
+    if len(battle["voted"]) >= battle["total_voters"]:
+        # Отменяем таймаут-джоб
+        jobs = context.job_queue.get_jobs_by_name(f"battle_{poll_id}")
+        for job in jobs:
+            job.schedule_removal()
+
+        await _finish_battle(context, poll_id)
+
+
 def main():
     token = os.environ.get("TELEGRAM_BOT_TOKEN")
     if not token:
@@ -220,6 +372,8 @@ def main():
 
     app.add_handler(CommandHandler("pidor", pidor))
     app.add_handler(CommandHandler("pidorstat", pidorstat))
+    app.add_handler(CommandHandler("battle", battle))
+    app.add_handler(PollAnswerHandler(poll_answer))
     app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, new_chat_members))
     app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, track_member))
 
