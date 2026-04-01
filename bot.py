@@ -260,6 +260,12 @@ async def _finish_battle(context: ContextTypes.DEFAULT_TYPE, poll_id: str):
     winner_name = members.get(winner_id, {}).get("name", "Неизвестный")
     mention = f'<a href="tg://user?id={winner_id}">{winner_name}</a>'
 
+    # Записываем победу в статистику
+    chat_data = data.get(chat_id, {})
+    battle_stats = chat_data.setdefault("battle_stats", {})
+    battle_stats[winner_id] = battle_stats.get(winner_id, 0) + 1
+    save_data(data)
+
     if votes[0] == votes[1]:
         result_line = f"Ничья! Но жребий пал на {mention} 🎲"
     else:
@@ -276,6 +282,34 @@ async def battle_timeout_job(context: ContextTypes.DEFAULT_TYPE):
     """Job: закрыть батл по таймауту."""
     poll_id = context.job.data
     await _finish_battle(context, poll_id)
+
+
+async def battlestat(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_chat.type == "private":
+        await update.message.reply_text("Эта команда работает только в групповых чатах!")
+        return
+
+    chat_id = str(update.effective_chat.id)
+    data = load_data()
+    chat = get_chat_data(data, chat_id)
+
+    battle_stats = chat.get("battle_stats", {})
+    members = chat["members"]
+
+    if not battle_stats:
+        await update.message.reply_text("Статистика батлов пуста. Запусти /battle!")
+        return
+
+    sorted_stats = sorted(battle_stats.items(), key=lambda x: x[1], reverse=True)
+
+    lines = ["⚔️ Зал славы батлов:\n"]
+    medals = ["🥇", "🥈", "🥉"]
+    for i, (uid, count) in enumerate(sorted_stats):
+        name = members.get(uid, {}).get("name", f"Пользователь {uid}")
+        medal = medals[i] if i < 3 else f"{i+1}."
+        lines.append(f"{medal} {name} — {count} побед(ы)")
+
+    await update.message.reply_text("\n".join(lines))
 
 
 async def battle(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -381,6 +415,7 @@ def main():
     app.add_handler(CommandHandler("pidor", pidor))
     app.add_handler(CommandHandler("pidorstat", pidorstat))
     app.add_handler(CommandHandler("battle", battle))
+    app.add_handler(CommandHandler("battlestat", battlestat))
     app.add_handler(PollAnswerHandler(poll_answer))
     app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, new_chat_members))
     app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, track_member))
