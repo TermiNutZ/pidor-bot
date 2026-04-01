@@ -12,8 +12,8 @@ from telegram.ext import (
 DATA_FILE = "data.json"
 
 BATTLE_CLOSE_SECONDS = 1 * 60 * 60  # 1 час
-QUIPLASH_COLLECT_SECONDS = 3 * 60   # 3 минуты на сбор шуток
-QUIPLASH_VOTE_SECONDS = 60          # 1 минута на голосование
+QUIPLASH_COLLECT_SECONDS = 60 * 60  # 1 час на сбор шуток
+QUIPLASH_VOTE_SECONDS = 5 * 60      # 5 минут на голосование
 
 # poll_id -> asyncio.Task (таймаут батла)
 _battle_timers: dict[str, asyncio.Task] = {}
@@ -505,22 +505,22 @@ async def _quiplash_vote_timeout(bot: Bot, chat_id: str, poll_id: str):
 
 async def _quiplash_collect_phase(bot: Bot, chat_id: str, prompt_message_id: int):
     """Таймер сбора шуток с напоминаниями."""
-    await asyncio.sleep(60)
+    await asyncio.sleep(30 * 60)
     if chat_id not in _active_quiplash:
         return
-    await bot.send_message(chat_id, "⏰ До конца приёма шуток осталось 2 минуты!")
+    await bot.send_message(chat_id, "⏰ До конца приёма шуток осталось 30 минут!")
+
+    await asyncio.sleep(20 * 60)
+    if chat_id not in _active_quiplash:
+        return
+    await bot.send_message(chat_id, "⏰ Осталось 10 минут! Последний шанс написать шутку!")
+
+    await asyncio.sleep(9 * 60)
+    if chat_id not in _active_quiplash:
+        return
+    await bot.send_message(chat_id, "⏰ Осталась 1 минута!")
 
     await asyncio.sleep(60)
-    if chat_id not in _active_quiplash:
-        return
-    await bot.send_message(chat_id, "⏰ Осталась 1 минута! Последний шанс написать шутку!")
-
-    await asyncio.sleep(30)
-    if chat_id not in _active_quiplash:
-        return
-    await bot.send_message(chat_id, "⏰ Осталось 30 секунд!")
-
-    await asyncio.sleep(30)
     if chat_id not in _active_quiplash:
         return
 
@@ -665,7 +665,7 @@ async def quiplash(update: Update, context: ContextTypes.DEFAULT_TYPE):
     prompt_msg = await update.message.reply_text(
         f"🎭 <b>QUIPLASH!</b>\n\n"
         f"<b>{situation}</b>\n\n"
-        f"У вас <b>3 минуты</b>, чтобы ответить на это сообщение своей шуткой!\n"
+        f"У вас <b>1 час</b>, чтобы ответить на это сообщение своей шуткой!\n"
         f"Отвечайте реплаем на это сообщение 👇",
         parse_mode="HTML",
     )
