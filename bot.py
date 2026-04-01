@@ -9,12 +9,23 @@ from telegram.ext import (
     PollAnswerHandler, filters, ContextTypes,
 )
 
-# poll_id -> asyncio.Task (таймаут)
-_battle_timers: dict[str, asyncio.Task] = {}
-
 DATA_FILE = "data.json"
 
 BATTLE_CLOSE_SECONDS = 1 * 60 * 60  # 1 час
+QUIPLASH_COLLECT_SECONDS = 3 * 60   # 3 минуты на сбор шуток
+QUIPLASH_VOTE_SECONDS = 60          # 1 минута на голосование
+
+# poll_id -> asyncio.Task (таймаут батла)
+_battle_timers: dict[str, asyncio.Task] = {}
+
+# chat_id -> состояние quiplash
+_active_quiplash: dict[str, dict] = {}
+
+# poll_id -> chat_id (для quiplash голосований)
+_quiplash_poll_map: dict[str, str] = {}
+
+# poll_id -> asyncio.Task (таймаут голосования quiplash)
+_quiplash_vote_timers: dict[str, asyncio.Task] = {}
 
 FUNNY_REASONS = [
     "Звёзды сошлись именно сегодня для {name} ⭐",
@@ -54,6 +65,31 @@ BATTLE_QUESTIONS = [
     "Кого оставят на тонущем корабле?",
     "Кого сыграет Дуэйн Скала Джонсон?",
     "Кто сожрёт последний кусок пиццы без спроса?",
+    "Кто больше скуф?"
+]
+
+SITUATIONS = [
+    "Последние слова {name} перед расстрелом:",
+    "Единственная строчка в завещании {name}:",
+    "{name} на смертном одре признаётся:",
+    "{name} на допросе в ФСБ. За что?",
+    "{name} задержали на таможне. Что нашли в чемодане?",
+    "Последнее слово {name} перед судом:",
+    "{name} на детекторе лжи. Какой вопрос провалит?",
+    "{name} случайно стал диктатором. Первый указ:",
+    "{name} теперь владеет Газпромом. Первое решение:",
+    "{name} основал религию. Главная заповедь:",
+    "{name} нашёл чемодан денег. Что дальше?",
+    "{name} встретил себя из будущего. Что тот сказал?",
+    "{name} просыпается в Северной Корее. Первые действия?",
+    "{name} случайно отправил скрин переписки не туда. Что там было?",
+    "Название автобиографии {name}:",
+    "За что {name} попадёт в учебники истории?",
+    "Что напишут на памятнике {name}?",
+    "Секретное хобби {name}, о котором никто не знает:",
+    "Цитата {name}, которую будут вспоминать через 100 лет:",
+    "{name} выступает перед ООН. Первая фраза:",
+    "Тост {name} на свадьбе:",
 ]
 
 
@@ -229,6 +265,8 @@ async def pidorstat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("\n".join(lines))
 
 
+# ───────────────────────── BATTLE ─────────────────────────
+
 async def _finish_battle(bot: Bot, poll_id: str):
     """Завершает батл: останавливает опрос и объявляет победителя."""
     _battle_timers.pop(poll_id, None)
@@ -265,7 +303,6 @@ async def _finish_battle(bot: Bot, poll_id: str):
     winner_name = members.get(winner_id, {}).get("name", "Неизвестный")
     mention = f'<a href="tg://user?id={winner_id}">{winner_name}</a>'
 
-    # Записываем победу в статистику
     chat_data = data.get(chat_id, {})
     battle_stats = chat_data.setdefault("battle_stats", {})
     battle_stats[winner_id] = battle_stats.get(winner_id, 0) + 1
@@ -325,7 +362,6 @@ async def battle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = load_data()
     chat = get_chat_data(data, chat_id)
 
-    # Регистрируем вызывающего
     user = update.effective_user
     is_new = await register_member(chat, str(user.id), get_display_name(user), user.username)
     if is_new:
@@ -378,29 +414,299 @@ async def battle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def poll_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Срабатывает когда кто-то голосует в опросе."""
     answer = update.poll_answer
     poll_id = answer.poll_id
     user_id = str(answer.user.id)
 
+    # Батл?
     data = load_data()
-    polls = data.get("polls", {})
-    battle = polls.get(poll_id)
+    battle = data.get("polls", {}).get(poll_id)
+    if battle and not battle.get("finished"):
+        if user_id not in battle["voted"]:
+            battle["voted"].append(user_id)
+        save_data(data)
 
-    if not battle or battle.get("finished"):
+        if len(battle["voted"]) >= battle["total_voters"]:
+            timer = _battle_timers.pop(poll_id, None)
+            if timer:
+                timer.cancel()
+            await _finish_battle(context.bot, poll_id)
         return
 
-    if user_id not in battle["voted"]:
-        battle["voted"].append(user_id)
+    # Quiplash?
+    chat_id = _quiplash_poll_map.get(poll_id)
+    if not chat_id:
+        return
 
-    save_data(data)
+    state = _active_quiplash.get(chat_id)
+    if not state or state.get("phase") != "voting" or state.get("vote_poll_id") != poll_id:
+        return
 
-    # Все проголосовали?
-    if len(battle["voted"]) >= battle["total_voters"]:
-        timer = _battle_timers.pop(poll_id, None)
+    if user_id not in state["voted"]:
+        state["voted"].append(user_id)
+
+    if len(state["voted"]) >= state["total_voters"]:
+        timer = _quiplash_vote_timers.pop(poll_id, None)
         if timer:
             timer.cancel()
-        await _finish_battle(context.bot, poll_id)
+        await _finish_quiplash_vote(context.bot, chat_id)
+
+
+# ───────────────────────── QUIPLASH ─────────────────────────
+
+async def _finish_quiplash_vote(bot: Bot, chat_id: str):
+    state = _active_quiplash.pop(chat_id, None)
+    if not state or state.get("phase") != "voting":
+        return
+
+    poll_id = state.get("vote_poll_id")
+    _quiplash_poll_map.pop(poll_id, None)
+    _quiplash_vote_timers.pop(poll_id, None)
+
+    try:
+        poll_result = await bot.stop_poll(chat_id=chat_id, message_id=state["vote_message_id"])
+    except Exception:
+        return
+
+    options = poll_result.options
+    votes = [o.voter_count for o in options]
+    max_votes = max(votes)
+    top_indices = [i for i, v in enumerate(votes) if v == max_votes]
+    winner_idx = random.choice(top_indices)
+
+    answer_list = state["answer_list"]  # [(user_id, {name, text}), ...]
+    winner_id, winner_ans = answer_list[winner_idx]
+    winner_name = winner_ans["name"]
+    mention = f'<a href="tg://user?id={winner_id}">{winner_name}</a>'
+
+    # Сохраняем статистику
+    data = load_data()
+    chat_data = get_chat_data(data, chat_id)
+    ql_stats = chat_data.setdefault("quiplash_stats", {})
+    ql_stats[winner_id] = ql_stats.get(winner_id, 0) + 1
+    save_data(data)
+
+    tied = len(top_indices) > 1
+    if tied:
+        result_line = f"Ничья по голосам! Жребий выбрал {mention} 🎲"
+    else:
+        result_line = f"Победитель — {mention}! 🏆"
+
+    # Показываем авторство всех шуток
+    lines = [f"🎭 Quiplash завершён!\n\n{result_line}\n\nАвторство шуток:"]
+    for uid, ans in answer_list:
+        lines.append(f'• <a href="tg://user?id={uid}">{ans["name"]}</a>: {ans["text"]}')
+
+    await bot.send_message(chat_id=chat_id, text="\n".join(lines), parse_mode="HTML")
+
+
+async def _quiplash_vote_timeout(bot: Bot, chat_id: str, poll_id: str):
+    await asyncio.sleep(QUIPLASH_VOTE_SECONDS)
+    await _finish_quiplash_vote(bot, chat_id)
+
+
+async def _quiplash_collect_phase(bot: Bot, chat_id: str, prompt_message_id: int):
+    """Таймер сбора шуток с напоминаниями."""
+    await asyncio.sleep(60)
+    if chat_id not in _active_quiplash:
+        return
+    await bot.send_message(chat_id, "⏰ До конца приёма шуток осталось 2 минуты!")
+
+    await asyncio.sleep(60)
+    if chat_id not in _active_quiplash:
+        return
+    await bot.send_message(chat_id, "⏰ Осталась 1 минута! Последний шанс написать шутку!")
+
+    await asyncio.sleep(30)
+    if chat_id not in _active_quiplash:
+        return
+    await bot.send_message(chat_id, "⏰ Осталось 30 секунд!")
+
+    await asyncio.sleep(30)
+    if chat_id not in _active_quiplash:
+        return
+
+    state = _active_quiplash[chat_id]
+    if state.get("phase") != "collecting":
+        return
+
+    answers = state["answers"]
+
+    if len(answers) < 2:
+        await bot.send_message(
+            chat_id,
+            "😢 Мало шуток для голосования. Игра отменена." if not answers
+            else "😢 Только одна шутка — победитель определён автоматически!"
+        )
+        if len(answers) == 1:
+            uid, ans = next(iter(answers.items()))
+            mention = f'<a href="tg://user?id={uid}">{ans["name"]}</a>'
+            data = load_data()
+            chat_data = get_chat_data(data, chat_id)
+            ql_stats = chat_data.setdefault("quiplash_stats", {})
+            ql_stats[uid] = ql_stats.get(uid, 0) + 1
+            save_data(data)
+            await bot.send_message(
+                chat_id,
+                f"🏆 Победитель по умолчанию — {mention}!",
+                parse_mode="HTML",
+            )
+        _active_quiplash.pop(chat_id, None)
+        return
+
+    # Запускаем голосование
+    state["phase"] = "voting"
+    answer_list = list(answers.items())
+    state["answer_list"] = answer_list
+
+    options = []
+    for _, ans in answer_list:
+        text = ans["text"]
+        if len(text) > 100:
+            text = text[:97] + "..."
+        options.append(text)
+
+    # Telegram позволяет максимум 10 вариантов в опросе
+    if len(options) > 10:
+        answer_list = answer_list[:10]
+        options = options[:10]
+        state["answer_list"] = answer_list
+
+    data = load_data()
+    total_voters = len(get_chat_data(data, chat_id)["members"])
+    state["total_voters"] = total_voters
+    state["voted"] = []
+
+    poll_msg = await bot.send_poll(
+        chat_id=chat_id,
+        question="🎭 Чья шутка лучше?",
+        options=options,
+        is_anonymous=False,
+    )
+
+    state["vote_poll_id"] = poll_msg.poll.id
+    state["vote_message_id"] = poll_msg.message_id
+    _quiplash_poll_map[poll_msg.poll.id] = chat_id
+
+    task = asyncio.create_task(_quiplash_vote_timeout(bot, chat_id, poll_msg.poll.id))
+    _quiplash_vote_timers[poll_msg.poll.id] = task
+
+
+async def quiplash_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Ловит ответы на промпт quiplash."""
+    if not update.message or not update.message.reply_to_message:
+        return
+    if not update.effective_chat or update.effective_chat.type == "private":
+        return
+
+    chat_id = str(update.effective_chat.id)
+    state = _active_quiplash.get(chat_id)
+    if not state or state.get("phase") != "collecting":
+        return
+
+    if update.message.reply_to_message.message_id != state["prompt_message_id"]:
+        return
+
+    user = update.effective_user
+    if user.is_bot:
+        return
+
+    user_id = str(user.id)
+    text = update.message.text or update.message.caption
+    if not text:
+        return
+
+    state["answers"][user_id] = {
+        "name": get_display_name(user),
+        "text": text,
+    }
+
+
+async def quiplash(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_chat.type == "private":
+        await update.message.reply_text("Эта команда работает только в групповых чатах!")
+        return
+
+    chat_id = str(update.effective_chat.id)
+
+    if chat_id in _active_quiplash:
+        await update.message.reply_text("Quiplash уже идёт! Сначала дождитесь конца текущей игры.")
+        return
+
+    data = load_data()
+    chat = get_chat_data(data, chat_id)
+
+    user = update.effective_user
+    is_new = await register_member(chat, str(user.id), get_display_name(user), user.username)
+    if is_new:
+        await update.message.reply_text(
+            random.choice(WELCOME_MESSAGES).format(name=get_display_name(user))
+        )
+
+    members = chat["members"]
+    if len(members) < 2:
+        await update.message.reply_text("Нужно хотя бы 2 участника для игры!")
+        save_data(data)
+        return
+
+    today = str(date.today())
+    if chat.get("last_quiplash") == today:
+        await update.message.reply_text("Quiplash сегодня уже был! Приходи завтра 🎭")
+        save_data(data)
+        return
+
+    chat["last_quiplash"] = today
+    save_data(data)
+
+    subject_id = random.choice(list(members.keys()))
+    subject_name = members[subject_id]["name"]
+    situation = random.choice(SITUATIONS).format(name=subject_name)
+
+    prompt_msg = await update.message.reply_text(
+        f"🎭 <b>QUIPLASH!</b>\n\n"
+        f"<b>{situation}</b>\n\n"
+        f"У вас <b>3 минуты</b>, чтобы ответить на это сообщение своей шуткой!\n"
+        f"Отвечайте реплаем на это сообщение 👇",
+        parse_mode="HTML",
+    )
+
+    _active_quiplash[chat_id] = {
+        "phase": "collecting",
+        "prompt_message_id": prompt_msg.message_id,
+        "subject_id": subject_id,
+        "situation": situation,
+        "answers": {},
+    }
+
+    asyncio.create_task(_quiplash_collect_phase(context.bot, chat_id, prompt_msg.message_id))
+
+
+async def quiplashstat(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_chat.type == "private":
+        await update.message.reply_text("Эта команда работает только в групповых чатах!")
+        return
+
+    chat_id = str(update.effective_chat.id)
+    data = load_data()
+    chat = get_chat_data(data, chat_id)
+
+    ql_stats = chat.get("quiplash_stats", {})
+    members = chat["members"]
+
+    if not ql_stats:
+        await update.message.reply_text("Статистика Quiplash пуста. Запусти /quiplash!")
+        return
+
+    sorted_stats = sorted(ql_stats.items(), key=lambda x: x[1], reverse=True)
+
+    lines = ["🎭 Зал славы Quiplash:\n"]
+    medals = ["🥇", "🥈", "🥉"]
+    for i, (uid, count) in enumerate(sorted_stats):
+        name = members.get(uid, {}).get("name", f"Пользователь {uid}")
+        medal = medals[i] if i < 3 else f"{i+1}."
+        lines.append(f"{medal} {name} — {count} побед(ы)")
+
+    await update.message.reply_text("\n".join(lines))
 
 
 def main():
@@ -414,8 +720,12 @@ def main():
     app.add_handler(CommandHandler("pidorstat", pidorstat))
     app.add_handler(CommandHandler("battle", battle))
     app.add_handler(CommandHandler("battlestat", battlestat))
+    app.add_handler(CommandHandler("quiplash", quiplash))
+    app.add_handler(CommandHandler("quiplashstat", quiplashstat))
     app.add_handler(PollAnswerHandler(poll_answer))
     app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, new_chat_members))
+    # Quiplash ответы — группа 1, чтобы работало параллельно с track_member
+    app.add_handler(MessageHandler(filters.REPLY & ~filters.COMMAND, quiplash_answer), group=1)
     app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, track_member))
 
     print("Бот запущен!")
