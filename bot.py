@@ -3,7 +3,7 @@ import json
 import os
 import random
 from datetime import date
-from telegram import Bot, Update
+from telegram import Bot, ReactionTypeEmoji, Update
 from telegram.ext import (
     ApplicationBuilder, CommandHandler, MessageHandler,
     PollAnswerHandler, filters, ContextTypes,
@@ -609,10 +609,17 @@ async def quiplash_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not text:
         return
 
+    is_update = user_id in state["answers"]
     state["answers"][user_id] = {
         "name": get_display_name(user),
         "text": text,
     }
+
+    reaction = "🔄" if is_update else "✍️"
+    try:
+        await update.message.set_reaction([ReactionTypeEmoji(reaction)])
+    except Exception:
+        pass
 
 
 async def quiplash(update: Update, context: ContextTypes.DEFAULT_TYPE):
