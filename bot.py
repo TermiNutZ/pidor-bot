@@ -702,6 +702,20 @@ async def quiplashstat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("\n".join(lines))
 
 
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = (
+        "🤖 <b>Команды бота:</b>\n\n"
+        "🍑 /pidor — выбрать пидора дня (раз в день)\n"
+        "📊 /pidorstat — статистика пидоров\n\n"
+        "⚔️ /battle — батл двух случайных участников голосованием (раз в день)\n"
+        "📊 /battlestat — статистика побед в батлах\n\n"
+        "🎭 /quiplash — игра: придумай шутку про участника чата (раз в день)\n"
+        "📊 /quiplashstat — статистика побед в Quiplash\n\n"
+        "❓ /help — это сообщение"
+    )
+    await update.message.reply_text(text, parse_mode="HTML")
+
+
 def main():
     token = os.environ.get("TELEGRAM_BOT_TOKEN")
     if not token:
@@ -709,6 +723,7 @@ def main():
 
     app = ApplicationBuilder().token(token).build()
 
+    app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("pidor", pidor))
     app.add_handler(CommandHandler("pidorstat", pidorstat))
     app.add_handler(CommandHandler("battle", battle))
