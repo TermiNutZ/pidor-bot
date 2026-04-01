@@ -14,7 +14,7 @@ _battle_timers: dict[str, asyncio.Task] = {}
 
 DATA_FILE = "data.json"
 
-BATTLE_CLOSE_SECONDS = 3 * 60 * 60  # 3 часа
+BATTLE_CLOSE_SECONDS = 1 * 60 * 60  # 1 час
 
 FUNNY_REASONS = [
     "Звёзды сошлись именно сегодня для {name} ⭐",
