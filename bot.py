@@ -13,7 +13,7 @@ DATA_FILE = "data.json"
 
 BATTLE_CLOSE_SECONDS = 1 * 60 * 60  # 1 час
 QUIPLASH_COLLECT_SECONDS = 60 * 60  # 1 час на сбор шуток
-QUIPLASH_VOTE_SECONDS = 5 * 60      # 5 минут на голосование
+QUIPLASH_VOTE_SECONDS = 60 * 60     # 1 час на голосование
 
 # poll_id -> asyncio.Task (таймаут батла)
 _battle_timers: dict[str, asyncio.Task] = {}
