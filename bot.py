@@ -687,6 +687,21 @@ async def _run_casting(bot: Bot, chat_id: str):
         )
         await asyncio.sleep(1)
 
+        # Если остался один — назначаем без опроса
+        if len(available_ids) == 1:
+            winner_id = available_ids[0]
+            winner_name = state["member_names"][winner_id]
+            state["assigned_user_ids"].add(winner_id)
+            results.append({"role": role, "user_id": winner_id, "name": winner_name, "votes": 0})
+            mention = f'<a href="tg://user?id={winner_id}">{winner_name}</a>'
+            await bot.send_message(
+                chat_id=chat_id,
+                text=f"✅ <b>{role['name']}</b> — {mention} (безальтернативно)",
+                parse_mode="HTML",
+            )
+            await asyncio.sleep(5)
+            continue
+
         # Максимум 10 вариантов в Telegram poll
         poll_ids = available_ids[:10]
         poll_options = [state["member_names"][uid] for uid in poll_ids]
