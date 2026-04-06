@@ -51,7 +51,13 @@
     "Кого оставят на тонущем корабле?",
     "Кого сыграет Дуэйн Скала Джонсон?",
     "Кто сожрёт последний кусок пиццы без спроса?",
-    "Кто больше скуф?"
+    "Кто больше скуф?",
+    "Кого первым заменит нейросеть?",
+    "Кого заберёт цирк?",
+    "Кто тайно рептилоид?",
+    "В чью честь назовут улицу?",
+    "Кто опаснее с похмелья?",
+    "С кем страшнее застрять в лифте?"
   ],
 
   "quiplash_situations": [
@@ -105,7 +111,8 @@
         {"id": "breaker",  "name": "Сломает корабль",                "description": "Нажал не ту кнопку",                "type": "shame",   "emoji": "💥"},
         {"id": "airlock",  "name": "Выкинут в шлюз по ошибке",      "description": "«Ой, не тот рычаг»",                "type": "shame",   "emoji": "🌌"},
         {"id": "victim",   "name": "Первая жертва",                  "description": "Не дожил до второй серии",          "type": "shame",   "emoji": "💀"},
-        {"id": "impostor", "name": "Самозванец",                     "description": "Амогус",                            "type": "shame",   "emoji": "📮"}
+        {"id": "impostor", "name": "Самозванец",                     "description": "Амогус",                            "type": "shame",   "emoji": "📮"},
+        {"id": "engineer", "name": "Инженер",                         "description": "Починит или сломает окончательно",   "type": "neutral", "emoji": "🔧"}
       ]
     },
     {
@@ -134,7 +141,8 @@
         {"id": "vaccine",   "name": "Найдёт вакцину",       "description": "Последняя надежда",               "type": "power",   "emoji": "💉"},
         {"id": "traitor",   "name": "Предатель",            "description": "Откроет ворота",                  "type": "shame",   "emoji": "🚪"},
         {"id": "eaten",     "name": "Съедят ради выживания","description": "Белок и жиры",                   "type": "shame",   "emoji": "🍖"},
-        {"id": "infected",  "name": "Первый заразится",     "description": "Уже покашливает",                "type": "shame",   "emoji": "🧟"}
+        {"id": "infected",  "name": "Первый заразится",     "description": "Уже покашливает",                "type": "shame",   "emoji": "🧟"},
+        {"id": "hoarder",   "name": "Прячет еду от остальных", "description": "Тайный склад тушёнки под матрасом", "type": "shame", "emoji": "🥫"}
       ]
     },
     {
@@ -148,7 +156,8 @@
         {"id": "adept",     "name": "Первый адепт",         "description": "Верит сильнее всех",              "type": "neutral", "emoji": "😤"},
         {"id": "believer",  "name": "Искренне верит",       "description": "Бедняга",                         "type": "shame",   "emoji": "🥺"},
         {"id": "property",  "name": "Отдаст всё имущество", "description": "«Квартира — это привязанность»",  "type": "shame",   "emoji": "🏠"},
-        {"id": "sacrifice", "name": "Принесут в жертву",    "description": "Избранный (не повезло)",          "type": "shame",   "emoji": "🔪"}
+        {"id": "sacrifice", "name": "Принесут в жертву",    "description": "Избранный (не повезло)",          "type": "shame",   "emoji": "🔪"},
+        {"id": "doubter",   "name": "Втайне сомневается",   "description": "Но исправно платит взносы",       "type": "neutral", "emoji": "🤔"}
       ]
     },
     {
@@ -162,7 +171,8 @@
         {"id": "hr",        "name": "HR которого все ненавидят",   "description": "«Мы тут как семья»",             "type": "neutral", "emoji": "😈"},
         {"id": "fired",     "name": "Уволят первым",               "description": "Уже собирает коробку",           "type": "shame",   "emoji": "📦"},
         {"id": "boss_bed",  "name": "Спит с боссом",               "description": "Карьерный лифт",                 "type": "shame",   "emoji": "🛗"},
-        {"id": "fridge",    "name": "Ворует еду из холодильника",  "description": "Где моя сырокопчёная?",          "type": "shame",   "emoji": "🧀"}
+        {"id": "fridge",    "name": "Ворует еду из холодильника",  "description": "Где моя сырокопчёная?",          "type": "shame",   "emoji": "🧀"},
+        {"id": "meetings",  "name": "Созывает митинги по любому поводу", "description": "«Давайте обсудим это синхронно»", "type": "neutral", "emoji": "📅"}
       ]
     }
   ]
