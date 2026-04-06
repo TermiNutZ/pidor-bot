@@ -174,6 +174,51 @@
         {"id": "fridge",    "name": "Ворует еду из холодильника",  "description": "Где моя сырокопчёная?",          "type": "shame",   "emoji": "🧀"},
         {"id": "meetings",  "name": "Созывает митинги по любому поводу", "description": "«Давайте обсудим это синхронно»", "type": "neutral", "emoji": "📅"}
       ]
+    },
+    {
+      "id": "asylum",
+      "name": "Психбольница",
+      "description": "Добро пожаловать в учреждение №6. Все процедуры строго по расписанию.\n\nПоследний «нормальный» становится Главврачом.",
+      "roles": [
+        {"id": "chief",     "name": "Главврач",                    "description": "Сам давно потерял рассудок",           "type": "power",   "emoji": "🩺", "main": true},
+        {"id": "napoleon",  "name": "Думает что он Наполеон",      "description": "Требует карту Европы на ужин",         "type": "neutral", "emoji": "👑"},
+        {"id": "orderly",   "name": "Санитар с тёмным прошлым",    "description": "Улыбается слишком широко",             "type": "neutral", "emoji": "😬"},
+        {"id": "trusted",   "name": "Пациент которому все верят",  "description": "Это и есть самое страшное",            "type": "neutral", "emoji": "😇"},
+        {"id": "escape2",   "name": "Сбежит через окно",           "description": "Уже примеряет простыню как верёвку",   "type": "neutral", "emoji": "🪟"},
+        {"id": "faker",     "name": "Симулянт",                    "description": "Косит от армии уже третий год",        "type": "shame",   "emoji": "🎭"},
+        {"id": "sane",      "name": "На самом деле здоров",        "description": "Но кто ему поверит",                  "type": "shame",   "emoji": "🤯"},
+        {"id": "silent",    "name": "Самый тихий",                 "description": "И самый опасный — молчит третий год", "type": "shame",   "emoji": "🤫"}
+      ]
+    },
+    {
+      "id": "agency",
+      "name": "Спецагентство",
+      "description": "Миссия засекречена. Личности агентов — тоже. Враги повсюду.\n\nПоследний непроваленный агент становится Директором.",
+      "roles": [
+        {"id": "director",  "name": "Директор",                    "description": "Знает всё. Говорит ничего",           "type": "power",   "emoji": "🎩", "main": true},
+        {"id": "gadgets",   "name": "Технический гений",           "description": "Как Q, только постоянно орёт",        "type": "neutral", "emoji": "🔬"},
+        {"id": "secretary", "name": "Секретарша которая всё знает","description": "Настоящий центр власти в здании",     "type": "neutral", "emoji": "💅"},
+        {"id": "double",    "name": "Двойной агент",               "description": "Продался ещё на стажировке",          "type": "shame",   "emoji": "🐍"},
+        {"id": "cover",     "name": "Прикрытие раскрыто",          "description": "Враги знают имя, адрес и любимый кофе","type": "shame",  "emoji": "📋"},
+        {"id": "sold",      "name": "Предал всех за деньги",       "description": "И не стыдится",                       "type": "shame",   "emoji": "💰"},
+        {"id": "firstmiss", "name": "Ликвидирован в первой миссии","description": "Даже псевдоним придумать не успел",   "type": "shame",   "emoji": "💀"},
+        {"id": "desk",      "name": "Аналитик",                    "description": "В поле не пустят — слишком ценен",    "type": "neutral", "emoji": "🖥️"}
+      ]
+    },
+    {
+      "id": "heirs",
+      "name": "Наследники",
+      "description": "Дедушка при смерти. Завещание в сейфе. Нотариус ждёт.\n\nПоследний, кого не разоблачат, получает всё состояние.",
+      "roles": [
+        {"id": "heir",      "name": "Единственный наследник",      "description": "Получает всё. Остальные — ничего",    "type": "power",   "emoji": "💎", "main": true},
+        {"id": "favorite2", "name": "Любимчик бабушки",            "description": "Льстит и приносит лекарства вовремя","type": "neutral", "emoji": "👴"},
+        {"id": "detective", "name": "Нанял детектива на остальных","description": "Папка с компроматом уже готова",      "type": "neutral", "emoji": "🔍"},
+        {"id": "rewrite",   "name": "Переписал завещание втихаря", "description": "Думает, что никто не заметил",        "type": "neutral", "emoji": "✒️"},
+        {"id": "illegit",   "name": "Тайный ребёнок от любовницы", "description": "Всплыл в самый неудобный момент",    "type": "shame",   "emoji": "👶"},
+        {"id": "gold",      "name": "Женится на состоянии",        "description": "Любовь? Нет, просто расчёт",          "type": "shame",   "emoji": "💍"},
+        {"id": "blowit",    "name": "Промотает всё за год",        "description": "Крипта, казино и NFT-обезьяны",       "type": "shame",   "emoji": "🎰"},
+        {"id": "poison2",   "name": "Ускорит процесс",             "description": "Дедушка что-то слишком долго держится","type": "shame",  "emoji": "☠️"}
+      ]
     }
   ]
 }
