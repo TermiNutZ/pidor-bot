@@ -376,6 +376,11 @@ async def poll_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if user_id not in battle["voted"]:
             battle["voted"].append(user_id)
         save_data(data)
+        if len(battle["voted"]) >= battle["total_voters"]:
+            timer = _battle_timers.pop(poll_id, None)
+            if timer:
+                timer.cancel()
+            await _finish_battle(context.bot, poll_id)
         return
 
     # Casting?
@@ -385,6 +390,10 @@ async def poll_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if state and state.get("current_poll_id") == poll_id:
             if user_id not in state["current_poll_voted"]:
                 state["current_poll_voted"].append(user_id)
+            if len(state["current_poll_voted"]) >= state["total_voters"]:
+                event = state.get("current_poll_event")
+                if event:
+                    event.set()
         return
 
     # Quiplash?
@@ -398,6 +407,12 @@ async def poll_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if user_id not in state["voted"]:
         state["voted"].append(user_id)
+
+    if len(state["voted"]) >= state["total_voters"]:
+        timer = _quiplash_vote_timers.pop(poll_id, None)
+        if timer:
+            timer.cancel()
+        await _finish_quiplash_vote(context.bot, chat_id)
 
 
 # ───────────────────────── QUIPLASH ─────────────────────────
@@ -689,19 +704,21 @@ async def _run_casting_poll(bot: Bot, chat_id: str, state: dict, role: dict) -> 
     )
 
     poll_id = poll_msg.poll.id
+    event = asyncio.Event()
     state["current_poll_id"] = poll_id
     state["current_poll_member_ids"] = poll_ids
     state["current_poll_message_id"] = poll_msg.message_id
     state["current_poll_voted"] = []
+    state["current_poll_event"] = event
     _casting_poll_map[poll_id] = chat_id
 
-    await asyncio.sleep(CASTING_ROLE_SECONDS)
-    while True:
-        voted = len(state["current_poll_voted"])
-        total = state["total_voters"]
-        if voted >= min(MIN_VOTES, total):
-            break
-        await asyncio.sleep(15)
+    # Ждём дедлайн или пока все не проголосуют
+    try:
+        await asyncio.wait_for(event.wait(), timeout=CASTING_ROLE_SECONDS)
+    except asyncio.TimeoutError:
+        # Дедлайн прошёл — ждём минимум 3 голоса
+        while len(state["current_poll_voted"]) < min(MIN_VOTES, state["total_voters"]):
+            await asyncio.sleep(15)
 
     _casting_poll_map.pop(poll_id, None)
 
@@ -861,6 +878,7 @@ async def casting(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "current_poll_member_ids": [],
         "current_poll_message_id": None,
         "current_poll_voted": [],
+        "current_poll_event": None,
     }
 
     await update.message.reply_text(
