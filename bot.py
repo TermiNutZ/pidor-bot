@@ -916,10 +916,10 @@ async def casting_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
             wins[uid] = wins.get(uid, 0) + 1
 
     if not wins:
-        await update.message.reply_text("Ещё никто не становился королём. Сыграйте кастинг!")
+        await update.message.reply_text("Ещё никто не получал главную роль. Сыграйте кастинг!")
         return
 
-    lines = ["👑 <b>Короли кастинга:</b>\n"]
+    lines = ["👑 <b>Чаще всего получали главную роль:</b>\n"]
     medals = ["🥇", "🥈", "🥉"]
     for i, (uid, count) in enumerate(sorted(wins.items(), key=lambda x: x[1], reverse=True)):
         name = members.get(uid, {}).get("name", f"Пользователь {uid}")
@@ -939,7 +939,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🎭 /quiplash — игра: придумай шутку про участника чата (раз в день)\n"
         "📊 /quiplashstat — статистика побед в Quiplash\n\n"
         "🎬 /casting — кастинг: распределить участников по ролям сценария (раз в день)\n"
-        "📊 /casting_stats — кто чаще всего становился королём\n\n"
+        "📊 /casting_stats — кто чаще всего получал главную роль\n\n"
         "❓ /help — это сообщение"
     )
     await update.message.reply_text(text, parse_mode="HTML")
