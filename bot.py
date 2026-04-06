@@ -665,94 +665,98 @@ async def quiplashstat(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ───────────────────────── CASTING ─────────────────────────
+async def _run_casting_poll(bot: Bot, chat_id: str, state: dict, role: dict) -> dict | None:
+    """Проводит один опрос для роли. Возвращает {role, user_id, name, votes} или None."""
+    available_ids = [uid for uid in state["all_member_ids"] if uid not in state["assigned_user_ids"]]
+
+    await bot.send_message(
+        chat_id=chat_id,
+        text=f"👤 <b>{role['name']}</b>\n📝 {role['description']}\n\nКто получит эту роль?",
+        parse_mode="HTML",
+    )
+    await asyncio.sleep(1)
+
+    poll_ids = available_ids[:10]
+    poll_options = [state["member_names"][uid] for uid in poll_ids]
+
+    poll_msg = await bot.send_poll(
+        chat_id=chat_id,
+        question=f"👤 {role['name']}",
+        options=poll_options,
+        is_anonymous=False,
+    )
+
+    poll_id = poll_msg.poll.id
+    event = asyncio.Event()
+    state["current_poll_id"] = poll_id
+    state["current_poll_member_ids"] = poll_ids
+    state["current_poll_message_id"] = poll_msg.message_id
+    state["current_poll_voted"] = []
+    state["current_poll_event"] = event
+    _casting_poll_map[poll_id] = chat_id
+
+    try:
+        await asyncio.wait_for(event.wait(), timeout=CASTING_ROLE_SECONDS)
+    except asyncio.TimeoutError:
+        pass
+
+    _casting_poll_map.pop(poll_id, None)
+
+    try:
+        poll_result = await bot.stop_poll(chat_id=chat_id, message_id=poll_msg.message_id)
+    except Exception:
+        return None
+
+    options = poll_result.options
+    max_votes = max(o.voter_count for o in options)
+    top_indices = [i for i, o in enumerate(options) if o.voter_count == max_votes]
+    winner_idx = random.choice(top_indices)
+    winner_id = poll_ids[winner_idx]
+    winner_name = state["member_names"][winner_id]
+    winner_votes = options[winner_idx].voter_count
+
+    state["assigned_user_ids"].add(winner_id)
+
+    mention = f'<a href="tg://user?id={winner_id}">{winner_name}</a>'
+    await bot.send_message(
+        chat_id=chat_id,
+        text=f"✅ <b>{role['name']}</b> — {mention} ({winner_votes} голос(ов))",
+        parse_mode="HTML",
+    )
+    return {"role": role, "user_id": winner_id, "name": winner_name, "votes": winner_votes}
+
+
 async def _run_casting(bot: Bot, chat_id: str):
     state = _active_casting.get(chat_id)
     if not state:
         return
 
     scenario = state["scenario"]
-    roles = state["roles"]
-    results = []  # [{role, user_id, name, votes}]
+    main_role = state["main_role"]
+    results = []
 
-    for role in roles:
-        # Доступные участники (ещё не назначены)
-        available_ids = [uid for uid in state["all_member_ids"] if uid not in state["assigned_user_ids"]]
-        if not available_ids:
-            break
+    for role in state["roles"]:
+        result = await _run_casting_poll(bot, chat_id, state, role)
+        if result:
+            results.append(result)
+        await asyncio.sleep(5)
 
-        await bot.send_message(
-            chat_id=chat_id,
-            text=f"👤 <b>Роль: {role['name']}</b>\n📝 {role['description']}\n\nКто достоин этой роли?",
-            parse_mode="HTML",
-        )
-        await asyncio.sleep(1)
-
-        # Если остался один — назначаем без опроса
-        if len(available_ids) == 1:
-            winner_id = available_ids[0]
-            winner_name = state["member_names"][winner_id]
-            state["assigned_user_ids"].add(winner_id)
-            results.append({"role": role, "user_id": winner_id, "name": winner_name, "votes": 0})
-            mention = f'<a href="tg://user?id={winner_id}">{winner_name}</a>'
-            await bot.send_message(
-                chat_id=chat_id,
-                text=f"✅ <b>{role['name']}</b> — {mention} (безальтернативно)",
-                parse_mode="HTML",
-            )
-            await asyncio.sleep(5)
-            continue
-
-        # Максимум 10 вариантов в Telegram poll
-        poll_ids = available_ids[:10]
-        poll_options = [state["member_names"][uid] for uid in poll_ids]
-
-        poll_msg = await bot.send_poll(
-            chat_id=chat_id,
-            question=f"👤 {role['name']}",
-            options=poll_options,
-            is_anonymous=False,
-        )
-
-        poll_id = poll_msg.poll.id
-        event = asyncio.Event()
-
-        state["current_poll_id"] = poll_id
-        state["current_poll_member_ids"] = poll_ids
-        state["current_poll_message_id"] = poll_msg.message_id
-        state["current_poll_voted"] = []
-        state["current_poll_event"] = event
-        _casting_poll_map[poll_id] = chat_id
-
-        try:
-            await asyncio.wait_for(event.wait(), timeout=CASTING_ROLE_SECONDS)
-        except asyncio.TimeoutError:
-            pass
-
-        _casting_poll_map.pop(poll_id, None)
-
-        try:
-            poll_result = await bot.stop_poll(chat_id=chat_id, message_id=poll_msg.message_id)
-        except Exception:
-            continue
-
-        options = poll_result.options
-        max_votes = max(o.voter_count for o in options)
-        top_indices = [i for i, o in enumerate(options) if o.voter_count == max_votes]
-        winner_idx = random.choice(top_indices)
-        winner_id = poll_ids[winner_idx]
+    # Последний оставшийся получает главную роль
+    remaining = [uid for uid in state["all_member_ids"] if uid not in state["assigned_user_ids"]]
+    if remaining:
+        winner_id = remaining[0]
         winner_name = state["member_names"][winner_id]
-        winner_votes = options[winner_idx].voter_count
-
-        state["assigned_user_ids"].add(winner_id)
-        results.append({"role": role, "user_id": winner_id, "name": winner_name, "votes": winner_votes})
+        results.append({"role": main_role, "user_id": winner_id, "name": winner_name, "votes": 0})
 
         mention = f'<a href="tg://user?id={winner_id}">{winner_name}</a>'
         await bot.send_message(
             chat_id=chat_id,
-            text=f"✅ <b>{role['name']}</b> — {mention} ({winner_votes} голос(ов))",
+            text=f"🏆 Последний оставшийся — {mention}!\n\n"
+                 f"{main_role['emoji']} <b>{main_role['name']}</b> — {mention}!\n\n"
+                 f"Поздравляем победителя!",
             parse_mode="HTML",
         )
-        await asyncio.sleep(5)
+        await asyncio.sleep(3)
 
     # Сохраняем результаты
     data = load_data()
@@ -771,9 +775,15 @@ async def _run_casting(bot: Bot, chat_id: str):
         })
     save_data(data)
 
-    # Итоговое сообщение
+    # Итоговое сообщение — главная роль первой
+    main_result = next((r for r in results if r["role"].get("main")), None)
+    other_results = [r for r in results if not r["role"].get("main")]
+
     lines = [f"🎬 <b>КАСТИНГ ЗАВЕРШЁН: {scenario['name'].upper()}</b>\n"]
-    for r in results:
+    if main_result:
+        mention = f'<a href="tg://user?id={main_result["user_id"]}">{main_result["name"]}</a>'
+        lines.append(f"{main_result['role']['emoji']} <b>{main_result['role']['name']}</b> — {mention} 🏆")
+    for r in other_results:
         mention = f'<a href="tg://user?id={r["user_id"]}">{r["name"]}</a>'
         lines.append(f"{r['role']['emoji']} {r['role']['name']} — {mention}")
     lines.append("\nСпасибо за игру!")
@@ -828,13 +838,18 @@ async def casting(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat["last_casting"] = today
     save_data(data)
 
-    # Ограничиваем количество ролей числом участников
     all_member_ids = list(members.keys())
-    roles = scenario["roles"][:len(all_member_ids)]
+
+    # Главная роль достаётся последнему — голосуем только за остальные
+    main_role = next((r for r in scenario["roles"] if r.get("main")), scenario["roles"][0])
+    other_roles = [r for r in scenario["roles"] if not r.get("main")]
+    # Берём столько ролей, чтобы осталось ровно 1 человек для главной
+    voting_roles = other_roles[:len(all_member_ids) - 1]
 
     _active_casting[chat_id] = {
         "scenario": scenario,
-        "roles": roles,
+        "main_role": main_role,
+        "roles": voting_roles,
         "all_member_ids": all_member_ids,
         "member_names": {uid: info["name"] for uid, info in members.items()},
         "assigned_user_ids": set(),
@@ -849,7 +864,7 @@ async def casting(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         f"🎬 <b>КАСТИНГ: {scenario['name'].upper()}</b>\n\n"
         f"{scenario['description']}\n\n"
-        f"Сейчас распределим роли. На каждую роль — 10 минут голосования.\n\n"
+        f"На каждую роль — 10 минут голосования. Последний оставшийся получит главную роль!\n\n"
         f"Начинаем!",
         parse_mode="HTML",
     )
