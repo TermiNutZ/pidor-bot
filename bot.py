@@ -790,6 +790,7 @@ async def _run_casting(bot: Bot, chat_id: str):
             "role_id": r["role"]["id"],
             "role_name": r["role"]["name"],
             "role_type": r["role"]["type"],
+            "main": bool(r["role"].get("main")),
             "votes": r["votes"],
             "date": today,
         })
@@ -908,29 +909,22 @@ async def casting_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Статистика кастингов пуста. Запусти /casting!")
         return
 
-    power_count: dict[str, int] = {}
-    shame_count: dict[str, int] = {}
-
+    wins: dict[str, int] = {}
     for r in results:
-        uid = r["user_id"]
-        if r["role_type"] == "power":
-            power_count[uid] = power_count.get(uid, 0) + 1
-        elif r["role_type"] == "shame":
-            shame_count[uid] = shame_count.get(uid, 0) + 1
+        if r.get("main"):
+            uid = r["user_id"]
+            wins[uid] = wins.get(uid, 0) + 1
 
-    lines = ["📊 <b>Статистика кастингов</b>\n"]
+    if not wins:
+        await update.message.reply_text("Ещё никто не становился королём. Сыграйте кастинг!")
+        return
 
-    if power_count:
-        lines.append("👑 <b>Рейтинг власти:</b>")
-        for i, (uid, count) in enumerate(sorted(power_count.items(), key=lambda x: x[1], reverse=True)[:5]):
-            name = members.get(uid, {}).get("name", f"Пользователь {uid}")
-            lines.append(f"  {i+1}. {name} — {count} раз(а)")
-
-    if shame_count:
-        lines.append("\n🐀 <b>Рейтинг позора:</b>")
-        for i, (uid, count) in enumerate(sorted(shame_count.items(), key=lambda x: x[1], reverse=True)[:5]):
-            name = members.get(uid, {}).get("name", f"Пользователь {uid}")
-            lines.append(f"  {i+1}. {name} — {count} раз(а)")
+    lines = ["👑 <b>Короли кастинга:</b>\n"]
+    medals = ["🥇", "🥈", "🥉"]
+    for i, (uid, count) in enumerate(sorted(wins.items(), key=lambda x: x[1], reverse=True)):
+        name = members.get(uid, {}).get("name", f"Пользователь {uid}")
+        medal = medals[i] if i < 3 else f"{i+1}."
+        lines.append(f"{medal} {name} — {count} раз(а)")
 
     await update.message.reply_text("\n".join(lines), parse_mode="HTML")
 
@@ -945,7 +939,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🎭 /quiplash — игра: придумай шутку про участника чата (раз в день)\n"
         "📊 /quiplashstat — статистика побед в Quiplash\n\n"
         "🎬 /casting — кастинг: распределить участников по ролям сценария (раз в день)\n"
-        "📊 /casting_stats — статистика ролей власти и позора\n\n"
+        "📊 /casting_stats — кто чаще всего становился королём\n\n"
         "❓ /help — это сообщение"
     )
     await update.message.reply_text(text, parse_mode="HTML")
