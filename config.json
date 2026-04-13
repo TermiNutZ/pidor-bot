@@ -220,5 +220,81 @@
         {"id": "poison2",   "name": "Ускорит процесс",             "description": "Дедушка что-то слишком долго держится","type": "shame",  "emoji": "☠️"}
       ]
     }
+    ,
+    {
+      "id": "rockband",
+      "name": "Рок-группа",
+      "description": "Тур начинается через 3 дня. Автобус сломан. Барабанщик уже пьян.\n\nПоследний трезвый становится Фронтменом.",
+      "roles": [
+        {"id": "frontman",  "name": "Фронтмен",                      "description": "Микрофон, слава, все проблемы",            "type": "power",   "emoji": "🎤", "main": true},
+        {"id": "guitarist", "name": "Гитарист-виртуоз",              "description": "Соло по 8 минут — и неважно что ты думаешь","type": "power",   "emoji": "🎸"},
+        {"id": "bassist",   "name": "Басист",                        "description": "Его никто не замечает. Он привык",          "type": "shame",   "emoji": "🫥"},
+        {"id": "drummer",   "name": "Барабанщик",                    "description": "Не слышит уже ничего. Счастлив",            "type": "neutral", "emoji": "🥁"},
+        {"id": "manager",   "name": "Менеджер-жулик",                "description": "Берёт 40% и «разруливает вопросы»",          "type": "shame",   "emoji": "💸"},
+        {"id": "breaker",   "name": "Разбивает гитары на сцене",     "description": "Три гитары за тур — норма",                 "type": "neutral", "emoji": "💥"},
+        {"id": "solo",      "name": "Уйдёт в сольную карьеру",       "description": "Уже записывает демо за спиной всех",        "type": "shame",   "emoji": "🏃"},
+        {"id": "groupie",   "name": "Группи затесался за кулисы",    "description": "Никто не знает как он здесь появился",      "type": "neutral", "emoji": "🎟️"}
+      ]
+    },
+    {
+      "id": "heist",
+      "name": "Ограбление казино",
+      "description": "Охрана — 40 человек. Камер — 200. Шансы — нулевые. Отлично.\n\nПоследний на свободе становится Мозгом операции.",
+      "roles": [
+        {"id": "mastermind","name": "Мозг операции",                 "description": "Всё просчитал. Почти всё",                 "type": "power",   "emoji": "🧠", "main": true},
+        {"id": "safecrack", "name": "Взломщик сейфов",               "description": "15 секунд на замок. Обычно",                "type": "power",   "emoji": "🔓"},
+        {"id": "distract",  "name": "Мастер отвлечения",             "description": "Устроит сцену у рулетки",                   "type": "neutral", "emoji": "🎭"},
+        {"id": "driver",    "name": "Водитель",                      "description": "Машина заведена. Постоянно заведена",        "type": "neutral", "emoji": "🚗"},
+        {"id": "croupier",  "name": "Переоделся крупье",             "description": "Акцент не очень, но костюм идёт",           "type": "neutral", "emoji": "🎰"},
+        {"id": "caught",    "name": "Первым попадётся охране",       "description": "Шёл за кофе не туда",                       "type": "shame",   "emoji": "🚨"},
+        {"id": "traitor2",  "name": "Предаст за долю побольше",      "description": "«Ребята, без обид»",                         "type": "shame",   "emoji": "🐍"},
+        {"id": "cameras",   "name": "Отвечал за камеры",             "description": "Нажал не ту кнопку. Ой",                    "type": "shame",   "emoji": "📹"}
+      ]
+    },
+    {
+      "id": "football",
+      "name": "Футбольная команда",
+      "description": "До матча 90 минут. Бюджет — ноль. Стадион полупустой. Но мы верим.\n\nПоследний не дисквалифицированный становится Тренером.",
+      "roles": [
+        {"id": "coach",     "name": "Тренер",                        "description": "Кричит с бровки. Всегда. Даже дома",         "type": "power",   "emoji": "📋", "main": true},
+        {"id": "striker",   "name": "Бомбардир",                     "description": "Забивает и немедленно строит дом в Дубае",   "type": "power",   "emoji": "⚽"},
+        {"id": "captain",   "name": "Капитан",                       "description": "Повязка, речь, проигрыш",                    "type": "neutral", "emoji": "🏆"},
+        {"id": "keeper",    "name": "Вратарь",                       "description": "Пропускает всё. Но с красивыми прыжками",    "type": "shame",   "emoji": "🧤"},
+        {"id": "diver",     "name": "Симулянт",                      "description": "Падает от ветра. Оскар заслужен",            "type": "shame",   "emoji": "🎬"},
+        {"id": "bench",     "name": "Запасной",                      "description": "За карьеру вышел на 4 минуты",               "type": "shame",   "emoji": "🪑"},
+        {"id": "fixer",     "name": "Договаривается с судьёй",       "description": "«Просто поговорили»",                        "type": "neutral", "emoji": "🤝"},
+        {"id": "autograph", "name": "Даёт автографы во время игры",  "description": "Публика важнее мяча",                        "type": "neutral", "emoji": "✍️"}
+      ]
+    },
+    {
+      "id": "reality",
+      "name": "Реалити-шоу",
+      "description": "Камеры включены. Микрофоны тоже. Всё, что вы скажете, будет использовано против вас.\n\nПоследний непоследний становится Звездой сезона.",
+      "roles": [
+        {"id": "winner",    "name": "Звезда сезона",                 "description": "Обаяние, стратегия, удача",                  "type": "power",   "emoji": "🌟", "main": true},
+        {"id": "villain",   "name": "Главный злодей шоу",            "description": "Зрители ненавидят. Продюсеры любят",          "type": "power",   "emoji": "😈"},
+        {"id": "crybaby",   "name": "Плачет в каждой серии",         "description": "Монтаж под саундтрек уже готов",              "type": "neutral", "emoji": "😭"},
+        {"id": "drama",     "name": "Главный источник драмы",        "description": "Без него незачем включать телевизор",         "type": "neutral", "emoji": "🎭"},
+        {"id": "beloved",   "name": "Любимец зрителей",              "description": "На него голосуют даже незнакомые бабушки",    "type": "neutral", "emoji": "🥰"},
+        {"id": "first_out", "name": "Вылетит в первом выпуске",      "description": "Кто-то же должен",                           "type": "shame",   "emoji": "🚪"},
+        {"id": "love",      "name": "Влюбится и всё испортит",       "description": "«Я сюда не за этим пришёл(а)» — а потом",   "type": "shame",   "emoji": "💘"},
+        {"id": "screentime","name": "Делает всё ради экранного времени","description": "Сцена у бассейна была спланирована",       "type": "shame",   "emoji": "📸"}
+      ]
+    },
+    {
+      "id": "filmset",
+      "name": "Съёмочная площадка",
+      "description": "Бюджет кончился на третий день. Звезда опоздала на шесть часов. Режиссёр плачет в углу.\n\nПоследний в кадре становится Режиссёром.",
+      "roles": [
+        {"id": "director2", "name": "Режиссёр",                      "description": "Видение есть. Денег нет. Но видение есть",   "type": "power",   "emoji": "🎬", "main": true},
+        {"id": "diva",      "name": "Звезда опоздала на 6 часов",    "description": "«Пробки. Я же объяснила»",                   "type": "power",   "emoji": "💫"},
+        {"id": "operator",  "name": "Оператор",                      "description": "Всё видит в объектив. И мнение имеет",       "type": "neutral", "emoji": "🎥"},
+        {"id": "makeup",    "name": "Художник по гриму",             "description": "Превратит любого в кого угодно",              "type": "neutral", "emoji": "💄"},
+        {"id": "extra",     "name": "Статист",                       "description": "Мечтает о реплике. Хотя бы одной",           "type": "shame",   "emoji": "🧍"},
+        {"id": "producer2", "name": "Продюсер режет бюджет",         "description": "«А нельзя снять без этой стены?»",            "type": "shame",   "emoji": "✂️"},
+        {"id": "stunt",     "name": "Дублёр знает роль лучше актёра","description": "Молчит. Но все понимают",                    "type": "neutral", "emoji": "🎭"},
+        {"id": "photobomb", "name": "Случайно попал в кадр",         "description": "Теперь вырезают 40 дублей",                  "type": "shame",   "emoji": "📷"}
+      ]
+    }
   ]
 }
