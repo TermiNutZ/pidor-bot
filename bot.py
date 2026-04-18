@@ -1,5 +1,6 @@
 import asyncio
 import json
+import math
 import os
 import random
 from datetime import date
@@ -29,8 +30,11 @@ QUIPLASH_VOTE_SECONDS = 60 * 60     # 1 час на голосование
 CASTING_ROLE_SECONDS = 10 * 60      # 10 минут на роль
 MIN_VOTES = 3                        # минимум голосов для закрытия опроса
 
-# poll_id -> asyncio.Task (таймаут батла)
-_battle_timers: dict[str, asyncio.Task] = {}
+# poll_id -> {"chat_id", "match_index", "event"} (активные опросы турнира)
+_tournament_polls: dict[str, dict] = {}
+
+# chat_id -> asyncio.Task (таймер раунда турнира)
+_tournament_timers: dict[str, asyncio.Task] = {}
 
 # chat_id -> состояние quiplash
 _active_quiplash: dict[str, dict] = {}
@@ -208,72 +212,240 @@ async def pidorstat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("\n".join(lines))
 
 
-# ───────────────────────── BATTLE ─────────────────────────
+# ───────────────────────── BATTLE (TOURNAMENT) ─────────────────────────
 
-async def _finish_battle(bot: Bot, poll_id: str):
-    """Завершает батл: останавливает опрос и объявляет победителя."""
-    _battle_timers.pop(poll_id, None)
+def _get_round_name(round_idx: int, total_rounds: int) -> str:
+    """Возвращает название раунда по индексу и общему числу раундов."""
+    remaining = total_rounds - round_idx
+    if remaining == 1:
+        return "Финал"
+    if remaining == 2:
+        return "Полуфинал"
+    if remaining == 3:
+        return "Четвертьфинал"
+    return f"Раунд {round_idx + 1}"
 
-    data = load_data()
-    polls = data.get("polls", {})
-    battle = polls.get(poll_id)
-    if not battle or battle.get("finished"):
+
+def _make_matches(player_ids: list[str]) -> list[list[str]]:
+    """Формирует матчи из списка участников. Если нечётное — последняя группа = тройка."""
+    ids = list(player_ids)
+    matches = []
+    if len(ids) % 2 == 1 and len(ids) >= 3:
+        # Последние 3 — тройка
+        triple = ids[-3:]
+        rest = ids[:-3]
+        for i in range(0, len(rest), 2):
+            matches.append(rest[i:i+2])
+        matches.append(triple)
+    else:
+        for i in range(0, len(ids), 2):
+            matches.append(ids[i:i+2])
+    return matches
+
+
+def _create_tournament(member_ids: list[str], question: str) -> dict:
+    """Создаёт новый турнир: перемешивает участников, формирует первый раунд."""
+    ids = list(member_ids)
+    random.shuffle(ids)
+    first_round = _make_matches(ids)
+    n = len(ids)
+    total_rounds = max(1, math.ceil(math.log2(n)))
+    return {
+        "question": question,
+        "bracket": [first_round],
+        "results": [],
+        "current_round": 0,
+        "last_round_date": None,
+        "total_rounds": total_rounds,
+        "finished": False,
+        "champion": None,
+    }
+
+
+async def _finish_tournament_match(bot: Bot, chat_id: str, poll_id: str):
+    """Останавливает один опрос матча и определяет победителя."""
+    info = _tournament_polls.pop(poll_id, None)
+    if not info:
         return
 
-    battle["finished"] = True
+    data = load_data()
+    poll_data = data.get("tournament_polls", {}).get(poll_id)
+    if not poll_data or poll_data.get("finished"):
+        return
+
+    poll_data["finished"] = True
     save_data(data)
 
-    chat_id = battle["chat_id"]
-    message_id = battle["message_id"]
-    fighters = battle["fighters"]
-    members = data.get(chat_id, {}).get("members", {})
-
     try:
-        poll_result = await bot.stop_poll(chat_id=chat_id, message_id=message_id)
+        poll_result = await bot.stop_poll(
+            chat_id=chat_id, message_id=poll_data["message_id"]
+        )
     except Exception:
         return
 
     options = poll_result.options
     votes = [o.voter_count for o in options]
+    max_v = max(votes)
+    top = [i for i, v in enumerate(votes) if v == max_v]
+    winner_idx = random.choice(top)
+    winner_id = poll_data["fighters"][winner_idx]
 
-    if votes[0] > votes[1]:
-        winner_id = fighters[0]
-    elif votes[1] > votes[0]:
-        winner_id = fighters[1]
-    else:
-        winner_id = random.choice(fighters)
-
-    winner_name = members.get(winner_id, {}).get("name", "Неизвестный")
-    mention = f'<a href="tg://user?id={winner_id}">{winner_name}</a>'
-
-    chat_data = data.get(chat_id, {})
-    battle_stats = chat_data.setdefault("battle_stats", {})
-    battle_stats[winner_id] = battle_stats.get(winner_id, 0) + 1
+    poll_data["winner"] = winner_id
     save_data(data)
 
-    if votes[0] == votes[1]:
-        result_line = f"Ничья! Но жребий пал на {mention} 🎲"
-    else:
-        result_line = f"Победитель — {mention}! 🏆"
+    # Сигнализируем что матч завершён
+    event = info.get("event")
+    if event:
+        event.set()
+
+
+async def _run_tournament_round(bot: Bot, chat_id: str):
+    """Проводит один раунд турнира: отправляет все опросы, ждёт завершения, объявляет результаты."""
+    data = load_data()
+    chat = get_chat_data(data, chat_id)
+    tournament = chat.get("tournament")
+    if not tournament or tournament.get("finished"):
+        return
+
+    round_idx = tournament["current_round"]
+    matches = tournament["bracket"][round_idx]
+    question = tournament["question"]
+    total_rounds = tournament["total_rounds"]
+    round_name = _get_round_name(round_idx, total_rounds)
+    members = chat["members"]
+    total_voters = len(members)
 
     await bot.send_message(
         chat_id=chat_id,
-        text=f"⚔️ Батл завершён!\n\n{result_line}",
+        text=f"⚔️ <b>ТУРНИР — {round_name.upper()}</b>\n\n"
+             f"Вопрос: <b>{question}</b>\n\n"
+             f"Матчей в этом раунде: {len(matches)}",
+        parse_mode="HTML",
+    )
+    await asyncio.sleep(2)
+
+    if "tournament_polls" not in data:
+        data["tournament_polls"] = {}
+
+    events = []
+    for match_idx, match in enumerate(matches):
+        names = [members.get(uid, {}).get("name", f"Участник {uid}") for uid in match]
+        poll_msg = await bot.send_poll(
+            chat_id=chat_id,
+            question=f"⚔️ {question}",
+            options=names,
+            is_anonymous=False,
+        )
+        poll_id = poll_msg.poll.id
+        event = asyncio.Event()
+
+        data["tournament_polls"][poll_id] = {
+            "chat_id": chat_id,
+            "message_id": poll_msg.message_id,
+            "fighters": match,
+            "total_voters": total_voters,
+            "voted": [],
+            "finished": False,
+            "winner": None,
+            "round_idx": round_idx,
+            "match_idx": match_idx,
+        }
+
+        _tournament_polls[poll_id] = {
+            "chat_id": chat_id,
+            "match_index": match_idx,
+            "event": event,
+        }
+        events.append((poll_id, event))
+        await asyncio.sleep(1)
+
+    save_data(data)
+
+    # Ждём завершения всех матчей (таймер + голоса)
+    async def _wait_and_close(poll_id: str, evt: asyncio.Event):
+        try:
+            await asyncio.wait_for(evt.wait(), timeout=BATTLE_CLOSE_SECONDS)
+        except asyncio.TimeoutError:
+            # Таймер истёк — ждём минимум голосов
+            while True:
+                d = load_data()
+                pd = d.get("tournament_polls", {}).get(poll_id, {})
+                if pd.get("finished"):
+                    return
+                voted = len(pd.get("voted", []))
+                tv = pd.get("total_voters", 0)
+                if voted >= min(MIN_VOTES, tv):
+                    break
+                await asyncio.sleep(15)
+            await _finish_tournament_match(bot, chat_id, poll_id)
+
+    tasks = [asyncio.create_task(_wait_and_close(pid, evt)) for pid, evt in events]
+    await asyncio.gather(*tasks)
+
+    # Все матчи завершены — собираем победителей
+    data = load_data()
+    chat = get_chat_data(data, chat_id)
+    tournament = chat["tournament"]
+
+    round_results = []
+    winners = []
+    for match_idx, match in enumerate(matches):
+        # Ищем poll для этого матча
+        winner_id = None
+        for pid, pd in data.get("tournament_polls", {}).items():
+            if (pd.get("chat_id") == chat_id
+                    and pd.get("round_idx") == round_idx
+                    and pd.get("match_idx") == match_idx):
+                winner_id = pd.get("winner")
+                break
+        if not winner_id:
+            winner_id = random.choice(match)
+        round_results.append({"match": match_idx, "winner": winner_id})
+        winners.append(winner_id)
+
+    tournament["results"].append(round_results)
+
+    # Объявляем результаты раунда
+    lines = [f"📊 <b>Результаты — {round_name}</b>\n"]
+    for i, res in enumerate(round_results):
+        match = matches[i]
+        w_id = res["winner"]
+        w_name = members.get(w_id, {}).get("name", "Неизвестный")
+        vs = " vs ".join(members.get(uid, {}).get("name", "?") for uid in match)
+        mention = f'<a href="tg://user?id={w_id}">{w_name}</a>'
+        lines.append(f"⚔️ {vs} → {mention}")
+
+    is_final = (len(winners) == 1)
+
+    if is_final:
+        # Турнир завершён
+        champion_id = winners[0]
+        champion_name = members.get(champion_id, {}).get("name", "Неизвестный")
+        champion_mention = f'<a href="tg://user?id={champion_id}">{champion_name}</a>'
+        lines.append(f"\n🏆 <b>ЧЕМПИОН ТУРНИРА — {champion_mention}!</b>")
+
+        tournament["finished"] = True
+        tournament["champion"] = champion_id
+
+        battle_stats = chat.setdefault("battle_stats", {})
+        battle_stats[champion_id] = battle_stats.get(champion_id, 0) + 1
+    else:
+        # Готовим следующий раунд
+        next_matches = _make_matches(winners)
+        tournament["bracket"].append(next_matches)
+        tournament["current_round"] = round_idx + 1
+        next_round_name = _get_round_name(round_idx + 1, total_rounds)
+        lines.append(f"\nСледующий раунд: <b>{next_round_name}</b> — завтра!")
+
+    save_data(data)
+
+    await bot.send_message(
+        chat_id=chat_id,
+        text="\n".join(lines),
         parse_mode="HTML",
     )
 
-
-async def _battle_timeout(bot: Bot, poll_id: str):
-    await asyncio.sleep(BATTLE_CLOSE_SECONDS)
-    while True:
-        data = load_data()
-        battle = data.get("polls", {}).get(poll_id, {})
-        voted = len(battle.get("voted", []))
-        total = battle.get("total_voters", 0)
-        if voted >= min(MIN_VOTES, total):
-            break
-        await asyncio.sleep(15)
-    await _finish_battle(bot, poll_id)
+    _tournament_timers.pop(chat_id, None)
 
 
 async def battlestat(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -289,12 +461,12 @@ async def battlestat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     members = chat["members"]
 
     if not battle_stats:
-        await update.message.reply_text("Статистика батлов пуста. Запусти /battle!")
+        await update.message.reply_text("Статистика турниров пуста. Запусти /battle!")
         return
 
     sorted_stats = sorted(battle_stats.items(), key=lambda x: x[1], reverse=True)
 
-    lines = ["⚔️ Зал славы батлов:\n"]
+    lines = ["⚔️ Зал славы турниров:\n"]
     medals = ["🥇", "🥈", "🥉"]
     for i, (uid, count) in enumerate(sorted_stats):
         name = members.get(uid, {}).get("name", f"Пользователь {uid}")
@@ -321,47 +493,46 @@ async def battle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     members = chat["members"]
     if len(members) < 2:
-        await update.message.reply_text("Нужно хотя бы 2 участника для батла!")
+        await update.message.reply_text("Нужно хотя бы 2 участника для турнира!")
         save_data(data)
         return
 
     today = str(date.today())
-    if chat.get("last_battle") == today:
-        await update.message.reply_text("Батл сегодня уже был! Приходи завтра ⚔️")
+    tournament = chat.get("tournament")
+
+    # Активный турнир
+    if tournament and not tournament.get("finished"):
+        if tournament.get("last_round_date") == today:
+            round_name = _get_round_name(
+                tournament["current_round"], tournament["total_rounds"]
+            )
+            await update.message.reply_text(
+                f"Сегодняшний раунд ({round_name}) уже сыгран! "
+                f"Следующий — завтра ⚔️"
+            )
+            save_data(data)
+            return
+        # Проводим следующий раунд
+        tournament["last_round_date"] = today
         save_data(data)
+        asyncio.create_task(_run_tournament_round(context.bot, chat_id))
         return
 
-    chat["last_battle"] = today
-
-    fighter_ids = random.sample(list(members.keys()), 2)
-    names = [members[fid]["name"] for fid in fighter_ids]
-    question = random.choice(BATTLE_QUESTIONS)
-    total_voters = len(members)
-
-    poll_msg = await context.bot.send_poll(
-        chat_id=chat_id,
-        question=f"⚔️ {question}",
-        options=names,
-        is_anonymous=False,
-    )
-
-    poll_id = poll_msg.poll.id
-
-    if "polls" not in data:
-        data["polls"] = {}
-
-    data["polls"][poll_id] = {
-        "chat_id": chat_id,
-        "message_id": poll_msg.message_id,
-        "fighters": fighter_ids,
-        "total_voters": total_voters,
-        "voted": [],
-        "finished": False,
-    }
+    # Нет турнира или завершён — создаём новый
+    used_questions = set(chat.get("used_battle_questions", []))
+    available = [q for q in BATTLE_QUESTIONS if q not in used_questions]
+    if not available:
+        chat["used_battle_questions"] = []
+        available = list(BATTLE_QUESTIONS)
+    question = random.choice(available)
+    chat.setdefault("used_battle_questions", []).append(question)
+    member_ids = list(members.keys())
+    tournament = _create_tournament(member_ids, question)
+    tournament["last_round_date"] = today
+    chat["tournament"] = tournament
     save_data(data)
 
-    task = asyncio.create_task(_battle_timeout(context.bot, poll_id))
-    _battle_timers[poll_id] = task
+    asyncio.create_task(_run_tournament_round(context.bot, chat_id))
 
 
 async def poll_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -369,18 +540,15 @@ async def poll_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     poll_id = answer.poll_id
     user_id = str(answer.user.id)
 
-    # Батл?
+    # Турнирный батл?
     data = load_data()
-    battle = data.get("polls", {}).get(poll_id)
-    if battle and not battle.get("finished"):
-        if user_id not in battle["voted"]:
-            battle["voted"].append(user_id)
+    t_poll = data.get("tournament_polls", {}).get(poll_id)
+    if t_poll and not t_poll.get("finished"):
+        if user_id not in t_poll["voted"]:
+            t_poll["voted"].append(user_id)
         save_data(data)
-        if len(battle["voted"]) >= battle["total_voters"]:
-            timer = _battle_timers.pop(poll_id, None)
-            if timer:
-                timer.cancel()
-            await _finish_battle(context.bot, poll_id)
+        if len(t_poll["voted"]) >= t_poll["total_voters"]:
+            await _finish_tournament_match(context.bot, t_poll["chat_id"], poll_id)
         return
 
     # Casting?
@@ -934,8 +1102,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🤖 <b>Команды бота:</b>\n\n"
         "🍑 /pidor — выбрать пидора дня (раз в день)\n"
         "📊 /pidorstat — статистика пидоров\n\n"
-        "⚔️ /battle — батл двух случайных участников голосованием (раз в день)\n"
-        "📊 /battlestat — статистика побед в батлах\n\n"
+        "⚔️ /battle — многодневный турнир с турнирной сеткой (раз в день — один раунд)\n"
+        "📊 /battlestat — статистика чемпионов турниров\n\n"
         "🎭 /quiplash — игра: придумай шутку про участника чата (раз в день)\n"
         "📊 /quiplashstat — статистика побед в Quiplash\n\n"
         "🎬 /casting — кастинг: распределить участников по ролям сценария (раз в день)\n"
