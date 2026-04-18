@@ -1030,9 +1030,12 @@ async def casting(update: Update, context: ContextTypes.DEFAULT_TYPE):
     used = set(chat.get("used_scenarios", []))
     available_scenarios = [s for s in SCENARIOS if s["id"] not in used]
     if not available_scenarios:
-        # Все сыграны — сбрасываем историю
-        available_scenarios = SCENARIOS
-        chat["used_scenarios"] = []
+        await update.message.reply_text(
+            "🎬 Все сценарии кастинга уже сыграны!\n\n"
+            "Предложите новые идеи админу, чтобы добавить свежие сценарии 💡"
+        )
+        save_data(data)
+        return
 
     scenario = random.choice(available_scenarios)
     chat.setdefault("used_scenarios", []).append(scenario["id"])
