@@ -51,6 +51,9 @@ _active_casting: dict[str, dict] = {}
 # poll_id -> chat_id (для кастинг-опросов)
 _casting_poll_map: dict[str, str] = {}
 
+# Блокировка для атомарных read-modify-write циклов data.json
+_data_lock = asyncio.Lock()
+
 
 
 def load_data() -> dict:
@@ -268,13 +271,14 @@ async def _finish_tournament_match(bot: Bot, chat_id: str, poll_id: str):
     if not info:
         return
 
-    data = load_data()
-    poll_data = data.get("tournament_polls", {}).get(poll_id)
-    if not poll_data or poll_data.get("finished"):
-        return
+    async with _data_lock:
+        data = load_data()
+        poll_data = data.get("tournament_polls", {}).get(poll_id)
+        if not poll_data or poll_data.get("finished"):
+            return
 
-    poll_data["finished"] = True
-    save_data(data)
+        poll_data["finished"] = True
+        save_data(data)
 
     try:
         poll_result = await bot.stop_poll(
@@ -290,8 +294,12 @@ async def _finish_tournament_match(bot: Bot, chat_id: str, poll_id: str):
     winner_idx = random.choice(top)
     winner_id = poll_data["fighters"][winner_idx]
 
-    poll_data["winner"] = winner_id
-    save_data(data)
+    async with _data_lock:
+        data = load_data()
+        pd = data.get("tournament_polls", {}).get(poll_id)
+        if pd:
+            pd["winner"] = winner_id
+            save_data(data)
 
     # Сигнализируем что матч завершён
     event = info.get("event")
@@ -541,13 +549,17 @@ async def poll_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(answer.user.id)
 
     # Турнирный батл?
-    data = load_data()
-    t_poll = data.get("tournament_polls", {}).get(poll_id)
+    should_finish = False
+    async with _data_lock:
+        data = load_data()
+        t_poll = data.get("tournament_polls", {}).get(poll_id)
+        if t_poll and not t_poll.get("finished"):
+            if user_id not in t_poll["voted"]:
+                t_poll["voted"].append(user_id)
+            save_data(data)
+            should_finish = len(t_poll["voted"]) >= t_poll["total_voters"]
     if t_poll and not t_poll.get("finished"):
-        if user_id not in t_poll["voted"]:
-            t_poll["voted"].append(user_id)
-        save_data(data)
-        if len(t_poll["voted"]) >= t_poll["total_voters"]:
+        if should_finish:
             await _finish_tournament_match(context.bot, t_poll["chat_id"], poll_id)
         return
 
