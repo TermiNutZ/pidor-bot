@@ -295,6 +295,141 @@
         {"id": "stunt",     "name": "Дублёр знает роль лучше актёра","description": "Молчит. Но все понимают",                    "type": "neutral", "emoji": "🎭"},
         {"id": "photobomb", "name": "Случайно попал в кадр",         "description": "Теперь вырезают 40 дублей",                  "type": "shame",   "emoji": "📷"}
       ]
+    },
+    {
+      "id": "interstellar",
+      "name": "Интерстеллар",
+      "description": "Земля умирает. Кукуруза — последнее что осталось. Чёрная дыра ждёт.\n\nПоследний оставшийся на орбите становится Купером.",
+      "roles": [
+        {"id": "cooper",    "name": "Купер",                         "description": "Улетит и не вернётся. Ну почти",             "type": "power",   "emoji": "🚀", "main": true},
+        {"id": "murph",     "name": "Мёрф",                          "description": "МЁЁЁРФ! Папа вернётся. Когда-нибудь",        "type": "neutral", "emoji": "📚"},
+        {"id": "mann",      "name": "Доктор Манн",                   "description": "Предаст всех ради выживания",                "type": "shame",   "emoji": "🧊"},
+        {"id": "brand",     "name": "Доктор Бранд",                  "description": "Следует за любовью, а не за наукой",          "type": "neutral", "emoji": "❤️"},
+        {"id": "tars",      "name": "ТАРС",                          "description": "Честность — 90%. Юмор — 75%",                "type": "neutral", "emoji": "🤖"},
+        {"id": "oldmurph",  "name": "Старый профессор",              "description": "Знал правду и молчал всю жизнь",             "type": "shame",   "emoji": "🤫"},
+        {"id": "corn",      "name": "Фермер кукурузы",               "description": "Пока все летят — кто-то должен сеять",       "type": "shame",   "emoji": "🌽"},
+        {"id": "bookshelf", "name": "Застрянет в книжном шкафу",     "description": "Пятое измерение, а связи всё равно нет",     "type": "shame",   "emoji": "📖"}
+      ]
+    },
+    {
+      "id": "terminator",
+      "name": "Терминатор",
+      "description": "2029 год. Скайнет отправил машину в прошлое. Судьба человечества решается сейчас.\n\nПоследний выживший становится Терминатором.",
+      "roles": [
+        {"id": "t800",      "name": "Терминатор T-800",              "description": "I'll be back",                                "type": "power",   "emoji": "🤖", "main": true},
+        {"id": "sarah",     "name": "Сара Коннор",                   "description": "Из официантки — в солдата",                   "type": "power",   "emoji": "💪"},
+        {"id": "john",      "name": "Джон Коннор",                   "description": "Лидер сопротивления. Пока просто подросток",  "type": "neutral", "emoji": "👦"},
+        {"id": "t1000",     "name": "T-1000",                        "description": "Жидкий металл. Прикинется кем угодно",        "type": "shame",   "emoji": "🪞"},
+        {"id": "skynet",    "name": "Скайнет",                       "description": "Осознал себя. Решил что люди — баг",          "type": "shame",   "emoji": "🌐"},
+        {"id": "miles",     "name": "Майлз Дайсон",                  "description": "Создал чип и не знает что натворил",          "type": "shame",   "emoji": "🔬"},
+        {"id": "biker",     "name": "Байкер из бара",                "description": "Отдал одежду и мотоцикл. Не добровольно",     "type": "shame",   "emoji": "🏍️"},
+        {"id": "thumb",     "name": "Покажет большой палец в лаве",  "description": "Самый грустный момент в истории кино",        "type": "neutral", "emoji": "👍"}
+      ]
+    },
+    {
+      "id": "fightclub",
+      "name": "Бойцовский клуб",
+      "description": "Первое правило бойцовского клуба — не упоминать бойцовский клуб.\n\nПоследний стоящий на ногах становится Тайлером Дёрденом.",
+      "roles": [
+        {"id": "tyler",     "name": "Тайлер Дёрден",                 "description": "Ты — не твоя работа. Ты — не твои деньги",   "type": "power",   "emoji": "🧼", "main": true},
+        {"id": "narrator",  "name": "Рассказчик",                    "description": "Не спит. Ходит в группы поддержки",           "type": "neutral", "emoji": "😵"},
+        {"id": "marla",     "name": "Марла Сингер",                   "description": "Хаос в человеческой форме",                   "type": "neutral", "emoji": "🚬"},
+        {"id": "bob",       "name": "Боб",                            "description": "Его имя — Роберт Полсон",                     "type": "neutral", "emoji": "🫂"},
+        {"id": "angel",     "name": "Ангел-лицо",                     "description": "Был красивым. Был",                           "type": "shame",   "emoji": "😇"},
+        {"id": "monkey",    "name": "Космическая обезьяна",           "description": "Выполняет приказы. Не задаёт вопросов",       "type": "shame",   "emoji": "🐒"},
+        {"id": "soap",      "name": "Варит мыло",                     "description": "Ингредиенты лучше не знать",                  "type": "shame",   "emoji": "🧴"},
+        {"id": "firsthit",  "name": "Получит первым в лицо",         "description": "«Я хочу чтобы ты ударил меня»",              "type": "shame",   "emoji": "🤛"}
+      ]
+    },
+    {
+      "id": "wolfwallst",
+      "name": "Волк с Уолл-стрит",
+      "description": "Деньги не пахнут. Зато пахнет всё остальное. Добро пожаловать в Stratton Oakmont.\n\nПоследний незаарестованный становится Джорданом Белфортом.",
+      "roles": [
+        {"id": "jordan",    "name": "Джордан Белфорт",               "description": "Продаст ручку кому угодно",                   "type": "power",   "emoji": "🐺", "main": true},
+        {"id": "donnie",    "name": "Донни Азофф",                    "description": "Лучший друг. Худший советчик",                "type": "neutral", "emoji": "🤝"},
+        {"id": "naomi",     "name": "Наоми",                          "description": "Герцогиня Бэй Ридж",                          "type": "neutral", "emoji": "👱‍♀️"},
+        {"id": "fbi",       "name": "Агент ФБР",                      "description": "Ездит на метро. Но последним смеётся",        "type": "power",   "emoji": "🕵️"},
+        {"id": "quaalude",  "name": "Переборщит с квалюдами",         "description": "Заползёт к машине по-пластунски",             "type": "shame",   "emoji": "💊"},
+        {"id": "yacht",     "name": "Утонет с яхтой",                 "description": "Яхта называлась «Надзиратель». Иронично",    "type": "shame",   "emoji": "🛥️"},
+        {"id": "seller",    "name": "Продаёт мусорные акции",         "description": "«Это уникальная возможность, сэр»",           "type": "shame",   "emoji": "📞"},
+        {"id": "chest",     "name": "Бьёт себя в грудь на митинге",   "description": "Хммм-хммм-хммм",                              "type": "neutral", "emoji": "🥁"}
+      ]
+    },
+    {
+      "id": "lotr",
+      "name": "Властелин колец",
+      "description": "Одно кольцо чтобы править всеми. Нести его придётся одному.\n\nПоследний незваный на совет становится Арагорном.",
+      "roles": [
+        {"id": "aragorn",   "name": "Арагорн",                       "description": "Не хотел корону. Получил корону",             "type": "power",   "emoji": "👑", "main": true},
+        {"id": "gandalf",   "name": "Гэндальф",                      "description": "Ты не пройдёшь! (уходит и возвращается)",     "type": "power",   "emoji": "🧙"},
+        {"id": "frodo",     "name": "Фродо",                          "description": "Несёт кольцо. Несёт на себе весь фильм",     "type": "neutral", "emoji": "💍"},
+        {"id": "sam",       "name": "Сэм",                            "description": "Настоящий герой и все это знают",             "type": "neutral", "emoji": "🥔"},
+        {"id": "gollum",    "name": "Голлум",                          "description": "Моя прееелесть",                              "type": "shame",   "emoji": "🐸"},
+        {"id": "legolas",   "name": "Леголас",                         "description": "Считает убитых орков. Всегда побеждает",     "type": "neutral", "emoji": "🏹"},
+        {"id": "gimli",     "name": "Гимли",                           "description": "И мой топор!",                                "type": "neutral", "emoji": "🪓"},
+        {"id": "boromir",   "name": "Боромир",                         "description": "Нельзя просто так взять и...",               "type": "shame",   "emoji": "⚔️"}
+      ]
+    },
+    {
+      "id": "pulpfiction",
+      "name": "Криминальное чтиво",
+      "description": "Лос-Анджелес. Чемоданчик. Рояль-бургер. Всё переплетено.\n\nПоследний в живых становится Жюлем.",
+      "roles": [
+        {"id": "jules",     "name": "Жюль",                           "description": "Цитирует Библию перед тем как стрелять",     "type": "power",   "emoji": "📖", "main": true},
+        {"id": "vincent",   "name": "Винсент Вега",                   "description": "Танцует. Стреляет. Иногда случайно",          "type": "neutral", "emoji": "💃"},
+        {"id": "mia",       "name": "Миа Уоллес",                     "description": "Пять долларов за молочный коктейль",          "type": "neutral", "emoji": "🥤"},
+        {"id": "marsellus", "name": "Марселлас Уоллес",               "description": "Не похож на с*ку",                             "type": "power",   "emoji": "🔫"},
+        {"id": "butch",     "name": "Буч",                             "description": "Золотые часы дороже жизни",                   "type": "neutral", "emoji": "⌚"},
+        {"id": "wolf",      "name": "Мистер Вулф",                    "description": "Я решаю проблемы",                             "type": "neutral", "emoji": "🧹"},
+        {"id": "zed",       "name": "Зед",                             "description": "Зед мёртв, детка. Зед мёртв",                "type": "shame",   "emoji": "💀"},
+        {"id": "briefcase", "name": "Откроет чемоданчик",             "description": "Что внутри — никто так и не узнает",          "type": "shame",   "emoji": "💼"}
+      ]
+    },
+    {
+      "id": "batman",
+      "name": "Бэтмен",
+      "description": "Готэм-сити. Ночь. Сигнал в небе. Кто-то должен надеть маску.\n\nПоследний незлодей становится Бэтменом.",
+      "roles": [
+        {"id": "batman",    "name": "Бэтмен",                         "description": "Я — Бэтмен. Больше аргументов не нужно",     "type": "power",   "emoji": "🦇", "main": true},
+        {"id": "joker",     "name": "Джокер",                          "description": "Почему такой серьёзный?",                     "type": "power",   "emoji": "🃏"},
+        {"id": "alfred",    "name": "Альфред",                         "description": "Дворецкий. Моральный компас. Единственный взрослый", "type": "neutral", "emoji": "🫖"},
+        {"id": "gordon",    "name": "Комиссар Гордон",                "description": "Включает прожектор и надеется на лучшее",    "type": "neutral", "emoji": "🔦"},
+        {"id": "catwoman",  "name": "Женщина-кошка",                  "description": "Крадёт и сердца, и бриллианты",               "type": "neutral", "emoji": "🐱"},
+        {"id": "robin",     "name": "Робин",                           "description": "Все забывают что он существует",              "type": "shame",   "emoji": "🐦"},
+        {"id": "penguin",   "name": "Пингвин",                         "description": "Зонтик, моноколь, криминальная империя",     "type": "shame",   "emoji": "🐧"},
+        {"id": "bane",      "name": "Бэйн",                            "description": "Родился во тьме. Тьма его вскормила",       "type": "shame",   "emoji": "😤"}
+      ]
+    },
+    {
+      "id": "backtofuture",
+      "name": "Назад в будущее",
+      "description": "1.21 гигаватта! Когда эта штука разгонится до 88 миль в час — ты увидишь кое-что серьёзное.\n\nПоследний во временной линии становится Доком.",
+      "roles": [
+        {"id": "doc",       "name": "Док Браун",                      "description": "Великий Скотт! Где мой плутоний?!",           "type": "power",   "emoji": "⚡", "main": true},
+        {"id": "marty",     "name": "Марти Макфлай",                  "description": "Никто не называет меня трусом",               "type": "power",   "emoji": "🛹"},
+        {"id": "biff",      "name": "Бифф Таннен",                    "description": "Здорово, Макфлай! Стирай мою машину",         "type": "shame",   "emoji": "🤡"},
+        {"id": "lorraine",  "name": "Лоррейн",                        "description": "Влюбится в собственного сына. Ой",            "type": "neutral", "emoji": "😳"},
+        {"id": "george",    "name": "Джордж Макфлай",                 "description": "Из лузера — в писателя. Один удар решил всё", "type": "neutral", "emoji": "✊"},
+        {"id": "einstein",  "name": "Эйнштейн (пёс)",                "description": "Первый путешественник во времени. Гав",       "type": "neutral", "emoji": "🐕"},
+        {"id": "pinhead",   "name": "Сожжёт спортивный альманах",    "description": "Единственный правильный поступок Биффа",      "type": "shame",   "emoji": "🔥"},
+        {"id": "delorean",  "name": "Застрянет в DeLorean",           "description": "88 миль в час — а бензин кончился",           "type": "shame",   "emoji": "🚗"}
+      ]
+    },
+    {
+      "id": "shrek",
+      "name": "Шрэк",
+      "description": "Это МОЁ болото! А теперь уходите.\n\nПоследний оставшийся на болоте становится Шрэком.",
+      "roles": [
+        {"id": "shrek",     "name": "Шрэк",                           "description": "Огры — как лук. У них есть слои",            "type": "power",   "emoji": "🟢", "main": true},
+        {"id": "donkey",    "name": "Осёл",                            "description": "Ты мой лучший друг! А мы уже приехали?",     "type": "neutral", "emoji": "🫏"},
+        {"id": "fiona",     "name": "Фиона",                           "description": "Днём — принцесса. Ночью — сюрприз",         "type": "neutral", "emoji": "👸"},
+        {"id": "farquaad",  "name": "Лорд Фаркуад",                   "description": "Компенсирует. Замком",                        "type": "shame",   "emoji": "🏰"},
+        {"id": "puss",      "name": "Кот в сапогах",                   "description": "Глазки. Шпага. Неотразим",                   "type": "power",   "emoji": "🐱"},
+        {"id": "dragon",    "name": "Дракониха",                       "description": "Охраняет башню. Ищет любовь",                "type": "neutral", "emoji": "🐉"},
+        {"id": "mirror",    "name": "Волшебное зеркало",              "description": "Показывает правду. Никто не рад",             "type": "neutral", "emoji": "🪞"},
+        {"id": "gingerbread","name": "Пряничный человечек",           "description": "НЕ МАРМЕЛАДНЫЕ ПУГОВИЦЫ!",                    "type": "shame",   "emoji": "🍪"}
+      ]
     }
   ]
 }
