@@ -1551,7 +1551,7 @@ async def wordle_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("\n".join(lines), parse_mode="HTML")
 
 
-
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (
         "🤖 <b>Команды бота:</b>\n\n"
         "🍑 /pidor — выбрать пидора дня (раз в день)\n"
