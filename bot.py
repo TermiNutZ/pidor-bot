@@ -3,7 +3,7 @@ import json
 import math
 import os
 import random
-from datetime import date
+from datetime import date, datetime
 from telegram import Bot, ReactionTypeEmoji, Update
 from telegram.ext import (
     ApplicationBuilder, CommandHandler, MessageHandler,
@@ -23,6 +23,14 @@ WELCOME_MESSAGES    = _cfg["welcome_messages"]
 BATTLE_QUESTIONS    = _cfg["battle_questions"]
 SITUATIONS          = _cfg["quiplash_situations"]
 SCENARIOS           = _cfg["casting_scenarios"]
+
+WORDS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "words.txt")
+with open(WORDS_FILE, "r", encoding="utf-8") as _wf:
+    _wordle_words = set(line.strip().lower().replace("ё", "е") for line in _wf if line.strip())
+
+WORDLE_MAX_ATTEMPTS = 6
+WORDLE_TURN_COOLDOWN = 15 * 60  # 15 минут
+WORDLE_TIMEOUT = 2 * 60 * 60   # 2 часа неактивности
 
 BATTLE_CLOSE_SECONDS = 1 * 60 * 60  # 1 час
 QUIPLASH_COLLECT_SECONDS = 60 * 60  # 1 час на сбор шуток
@@ -50,6 +58,12 @@ _active_casting: dict[str, dict] = {}
 
 # poll_id -> chat_id (для кастинг-опросов)
 _casting_poll_map: dict[str, str] = {}
+
+# chat_id -> состояние wordle
+_active_wordle: dict[str, dict] = {}
+
+# chat_id -> asyncio.Task (таймаут wordle)
+_wordle_timers: dict[str, asyncio.Task] = {}
 
 # Блокировка для атомарных read-modify-write циклов data.json
 _data_lock = asyncio.Lock()
@@ -1112,7 +1126,432 @@ async def casting_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("\n".join(lines), parse_mode="HTML")
 
 
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# ───────────────────────── WORDLE ─────────────────────────
+
+def _normalize(word: str) -> str:
+    return word.strip().lower().replace("ё", "е")
+
+
+def _check_wordle(guess: str, answer: str) -> list[str]:
+    """Проверка слова по правилам Wordle с корректной обработкой дублей."""
+    result = ["⬛"] * 5
+    answer_chars = list(answer)
+
+    # Проход 1: точные совпадения (🟩)
+    for i in range(5):
+        if guess[i] == answer_chars[i]:
+            result[i] = "🟩"
+            answer_chars[i] = None
+
+    # Проход 2: буква есть, но не на месте (🟨)
+    for i in range(5):
+        if result[i] == "🟩":
+            continue
+        if guess[i] in answer_chars:
+            result[i] = "🟨"
+            answer_chars[answer_chars.index(guess[i])] = None
+
+    return result
+
+
+def _calc_points(result: list[str], guess: str, revealed: dict) -> tuple[int, list[str]]:
+    """Считает очки за попытку. Возвращает (очки, детали)."""
+    points = 0
+    details = []
+
+    for i, (letter, status) in enumerate(zip(guess, result)):
+        if status == "⬛":
+            continue
+
+        letter_info = revealed.get(letter, {"positions": set(), "known": False})
+
+        if status == "🟩":
+            if not letter_info["known"] and i not in letter_info["positions"]:
+                # Новая буква + новая позиция
+                points += 3
+                details.append(f"{letter.upper()} +3")
+            elif letter_info["known"] and i not in letter_info["positions"]:
+                # Известная буква, новая позиция
+                points += 1
+                details.append(f"{letter.upper()} +1")
+            # Иначе 0 — всё уже было известно
+        elif status == "🟨":
+            if not letter_info["known"]:
+                # Новая буква (жёлтая)
+                points += 2
+                details.append(f"{letter.upper()} +2")
+
+    return points, details
+
+
+def _update_revealed(result: list[str], guess: str, revealed: dict):
+    """Обновляет revealed после попытки."""
+    for i, (letter, status) in enumerate(zip(guess, result)):
+        if status == "⬛":
+            continue
+        if letter not in revealed:
+            revealed[letter] = {"positions": set(), "known": False}
+        revealed[letter]["known"] = True
+        if status == "🟩":
+            revealed[letter]["positions"].add(i)
+
+
+def _format_known(answer: str, revealed: dict) -> str:
+    """Форматирует известные позиции: К_Ш_А"""
+    chars = []
+    for i, letter in enumerate(answer):
+        info = revealed.get(letter, {"positions": set()})
+        if i in info.get("positions", set()):
+            chars.append(letter.upper())
+        else:
+            chars.append("_")
+    return "".join(chars)
+
+
+def _format_misplaced(revealed: dict, answer: str) -> str:
+    """Список букв которые есть, но позиция не найдена."""
+    misplaced = []
+    for letter, info in revealed.items():
+        if info["known"]:
+            # Проверяем есть ли неоткрытые позиции этой буквы
+            answer_positions = {i for i, c in enumerate(answer) if c == letter}
+            if not answer_positions.issubset(info["positions"]):
+                if letter.upper() not in misplaced:
+                    misplaced.append(letter.upper())
+    return ", ".join(misplaced) if misplaced else ""
+
+
+async def _wordle_timeout(bot: Bot, chat_id: str):
+    """Завершает игру по таймауту неактивности."""
+    await asyncio.sleep(WORDLE_TIMEOUT)
+    state = _active_wordle.pop(chat_id, None)
+    if state:
+        await bot.send_message(
+            chat_id=chat_id,
+            text=f"⏰ Wordle завершён по таймауту!\n\nСлово было: <b>{state['word'].upper()}</b>",
+            parse_mode="HTML",
+        )
+
+
+def _restart_wordle_timer(bot: Bot, chat_id: str):
+    """Перезапускает таймер неактивности."""
+    old = _wordle_timers.pop(chat_id, None)
+    if old:
+        old.cancel()
+    _wordle_timers[chat_id] = asyncio.create_task(_wordle_timeout(bot, chat_id))
+
+
+async def _finish_wordle(bot: Bot, chat_id: str, state: dict, won: bool,
+                         winner_id: str | None = None, loser_id: str | None = None):
+    """Финализирует игру: сохраняет статистику, объявляет результат."""
+    timer = _wordle_timers.pop(chat_id, None)
+    if timer:
+        timer.cancel()
+    _active_wordle.pop(chat_id, None)
+
+    data = load_data()
+    chat = get_chat_data(data, chat_id)
+    members = chat["members"]
+    ws = chat.setdefault("wordle_stats", {})
+
+    # Обновляем статистику по всем игрокам
+    all_players = set()
+    for a in state["attempts"]:
+        all_players.add(a["player_id"])
+
+    for pid in all_players:
+        if pid not in ws:
+            ws[pid] = {"games_played": 0, "games_won": 0, "total_points": 0, "sixth_fails": 0}
+        ws[pid]["games_played"] += 1
+        ws[pid]["total_points"] += state["scores"].get(pid, 0)
+
+    if won and winner_id and winner_id in ws:
+        ws[winner_id]["games_won"] += 1
+
+    if not won and loser_id and loser_id in ws:
+        ws[loser_id]["sixth_fails"] += 1
+
+    save_data(data)
+
+    # Форматируем итоги
+    lines = []
+    if won:
+        last = state["attempts"][-1]
+        winner_name = members.get(winner_id, {}).get("name", "Неизвестный")
+        mention = f'<a href="tg://user?id={winner_id}">{winner_name}</a>'
+        lines.append(f"🎉 <b>WORDLE — ПОБЕДА!</b>\n")
+        lines.append(f"{last['word'].upper()} → {''.join(last['result'])}\n")
+        lines.append(f"Слово: <b>{state['word'].upper()}</b>")
+        lines.append(f"Угадал: {mention} за {len(state['attempts'])} попыток")
+        lines.append(f"Награда: +{last.get('win_points', 2)} очков")
+    else:
+        lines.append(f"💀 <b>WORDLE — ПРОВАЛ</b>\n")
+        lines.append(f"Слово было: <b>{state['word'].upper()}</b>")
+        if loser_id:
+            loser_name = members.get(loser_id, {}).get("name", "Неизвестный")
+            mention = f'<a href="tg://user?id={loser_id}">{loser_name}</a>'
+            lines.append(f"\n{mention} сделал последнюю попытку: -5 очков")
+
+    # Итоги раунда
+    if state["scores"]:
+        lines.append("\n📊 <b>Итоги раунда:</b>")
+        sorted_scores = sorted(state["scores"].items(), key=lambda x: x[1], reverse=True)
+        for pid, pts in sorted_scores:
+            pname = members.get(pid, {}).get("name", f"Игрок {pid}")
+            sign = f"+{pts}" if pts >= 0 else str(pts)
+            lines.append(f"{pname}: {sign}")
+
+    await bot.send_message(chat_id=chat_id, text="\n".join(lines), parse_mode="HTML")
+
+
+async def wordle(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_chat.type == "private":
+        await update.message.reply_text("Эта команда работает только в групповых чатах!")
+        return
+
+    chat_id = str(update.effective_chat.id)
+
+    if chat_id in _active_wordle:
+        await update.message.reply_text("Wordle уже идёт! Отвечайте реплаем на сообщение бота.")
+        return
+
+    data = load_data()
+    chat = get_chat_data(data, chat_id)
+
+    user = update.effective_user
+    await register_member(chat, str(user.id), get_display_name(user), user.username)
+    save_data(data)
+
+    word = random.choice(list(_wordle_words))
+
+    prompt_msg = await update.message.reply_text(
+        "🟩 <b>WORDLE</b>\n\n"
+        "Угадайте слово из 5 букв!\n"
+        f"Попыток: {WORDLE_MAX_ATTEMPTS}\n\n"
+        "Отвечайте реплаем на это сообщение.",
+        parse_mode="HTML",
+    )
+
+    _active_wordle[chat_id] = {
+        "word": word,
+        "attempts": [],
+        "revealed": {},
+        "last_player_id": None,
+        "last_move_time": None,
+        "prompt_message_id": prompt_msg.message_id,
+        "scores": {},
+    }
+
+    _restart_wordle_timer(context.bot, chat_id)
+
+
+async def wordle_stop(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_chat.type == "private":
+        return
+
+    chat_id = str(update.effective_chat.id)
+    state = _active_wordle.pop(chat_id, None)
+    if not state:
+        await update.message.reply_text("Нет активной игры Wordle.")
+        return
+
+    timer = _wordle_timers.pop(chat_id, None)
+    if timer:
+        timer.cancel()
+
+    await update.message.reply_text(
+        f"🛑 Wordle остановлен.\n\nСлово было: <b>{state['word'].upper()}</b>",
+        parse_mode="HTML",
+    )
+
+
+async def wordle_guess(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик реплаев с попытками Wordle."""
+    if not update.message or not update.message.reply_to_message:
+        return
+    if not update.effective_chat or update.effective_chat.type == "private":
+        return
+
+    chat_id = str(update.effective_chat.id)
+    state = _active_wordle.get(chat_id)
+    if not state:
+        return
+
+    # Проверяем что реплай на сообщение бота
+    if update.message.reply_to_message.message_id != state["prompt_message_id"]:
+        return
+
+    user = update.effective_user
+    if not user or user.is_bot:
+        return
+
+    text = (update.message.text or "").strip()
+    if not text:
+        return
+
+    guess = _normalize(text)
+
+    # Валидация
+    if len(guess) != 5 or not all("а" <= c <= "я" for c in guess):
+        await update.message.reply_text(f'❌ "{text}" — нужно ровно 5 русских букв')
+        return
+
+    if guess not in _wordle_words:
+        await update.message.reply_text(f'❌ "{text}" — такого слова нет в словаре')
+        return
+
+    user_id = str(user.id)
+
+    # Чередование ходов
+    if state["last_player_id"] == user_id and state["last_move_time"]:
+        elapsed = (datetime.now() - state["last_move_time"]).total_seconds()
+        if elapsed < WORDLE_TURN_COOLDOWN:
+            remaining = int((WORDLE_TURN_COOLDOWN - elapsed) / 60) + 1
+            await update.message.reply_text(
+                f"⏳ {get_display_name(user)}, подожди хода другого игрока или ~{remaining} мин"
+            )
+            return
+
+    # Регистрируем участника
+    data = load_data()
+    chat = get_chat_data(data, chat_id)
+    await register_member(chat, user_id, get_display_name(user), user.username)
+    save_data(data)
+    members = chat["members"]
+
+    # Проверяем слово
+    answer = state["word"]
+    result = _check_wordle(guess, answer)
+
+    # Считаем очки
+    points, details = _calc_points(result, guess, state["revealed"])
+
+    # Обновляем revealed
+    _update_revealed(result, guess, state["revealed"])
+
+    attempt_num = len(state["attempts"]) + 1
+    won = (guess == answer)
+
+    # Бонус за победу
+    win_points = 0
+    if won:
+        # +2 за каждую букву, раскрытую финальным словом
+        new_letters_in_final = 0
+        for i, (letter, status) in enumerate(zip(guess, result)):
+            if status != "⬛":
+                # Считаем раскрытой если это слово добавило новую информацию
+                pass
+        # Просто: details уже содержит что раскрыто этим ходом
+        win_points = max(2, sum(int(d.split("+")[1]) for d in details) if details else 0)
+        # Минимум 2 очка за победу
+        win_points = max(2, len([d for d in details if d]) * 2) if details else 2
+        # Простая формула: +2 за каждую новую букву в финальном слове
+        win_points = max(2, points)
+        points += win_points
+
+    # Штраф за проигрыш
+    lost = (not won and attempt_num >= WORDLE_MAX_ATTEMPTS)
+    if lost:
+        points -= 5
+
+    state["scores"][user_id] = state["scores"].get(user_id, 0) + points
+    state["last_player_id"] = user_id
+    state["last_move_time"] = datetime.now()
+
+    attempt = {
+        "player_id": user_id,
+        "player_name": get_display_name(user),
+        "word": guess,
+        "result": result,
+        "points": points,
+        "win_points": win_points,
+    }
+    state["attempts"].append(attempt)
+
+    _restart_wordle_timer(context.bot, chat_id)
+
+    if won:
+        await _finish_wordle(context.bot, chat_id, state, won=True, winner_id=user_id)
+        return
+
+    if lost:
+        await _finish_wordle(context.bot, chat_id, state, won=False, loser_id=user_id)
+        return
+
+    # Формируем сообщение о попытке
+    player_name = get_display_name(user)
+    result_str = "".join(result)
+    known_str = _format_known(answer, state["revealed"])
+    misplaced_str = _format_misplaced(state["revealed"], answer)
+
+    lines = [
+        f"🟩 <b>WORDLE</b> (попытка {attempt_num}/{WORDLE_MAX_ATTEMPTS})\n",
+        f"{guess.upper()} → {result_str}\n",
+    ]
+
+    # Подробности по буквам
+    for letter, status in zip(guess, result):
+        if status == "🟩":
+            lines.append(f"{letter.upper()} — ✓ на месте!")
+        elif status == "🟨":
+            lines.append(f"{letter.upper()} — есть, но не там")
+        else:
+            lines.append(f"{letter.upper()} — нет")
+
+    if points != 0:
+        sign = f"+{points}" if points > 0 else str(points)
+        detail_str = f" ({', '.join(details)})" if details else ""
+        lines.append(f"\n{player_name} {sign} очков{detail_str}")
+
+    lines.append(f"\nИзвестно: {known_str}")
+    if misplaced_str:
+        lines.append(f"Не там: {misplaced_str}")
+    lines.append(f"Осталось попыток: {WORDLE_MAX_ATTEMPTS - attempt_num}")
+
+    await update.message.reply_text("\n".join(lines), parse_mode="HTML")
+
+
+async def wordle_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_chat.type == "private":
+        await update.message.reply_text("Эта команда работает только в групповых чатах!")
+        return
+
+    chat_id = str(update.effective_chat.id)
+    data = load_data()
+    chat = get_chat_data(data, chat_id)
+
+    ws = chat.get("wordle_stats", {})
+    members = chat["members"]
+
+    if not ws:
+        await update.message.reply_text("Статистика Wordle пуста. Запусти /wordle!")
+        return
+
+    # Рейтинг по очкам
+    sorted_by_points = sorted(ws.items(), key=lambda x: x[1].get("total_points", 0), reverse=True)
+
+    lines = ["📊 <b>Wordle — Статистика чата</b>\n\n🏆 <b>Рейтинг:</b>"]
+    medals = ["🥇", "🥈", "🥉"]
+    for i, (uid, stats) in enumerate(sorted_by_points):
+        name = members.get(uid, {}).get("name", f"Игрок {uid}")
+        pts = stats.get("total_points", 0)
+        wins = stats.get("games_won", 0)
+        medal = medals[i] if i < 3 else f"{i+1}."
+        lines.append(f"{medal} {name} — {pts} очков ({wins} побед)")
+
+    # Стена позора
+    shamers = [(uid, s.get("sixth_fails", 0)) for uid, s in ws.items() if s.get("sixth_fails", 0) > 0]
+    if shamers:
+        shamers.sort(key=lambda x: x[1], reverse=True)
+        lines.append("\n😈 <b>Стена позора (слили на 6-й попытке):</b>")
+        for i, (uid, fails) in enumerate(shamers):
+            name = members.get(uid, {}).get("name", f"Игрок {uid}")
+            lines.append(f"{i+1}. {name} — {fails} раз(а)")
+
+    await update.message.reply_text("\n".join(lines), parse_mode="HTML")
+
+
+
     text = (
         "🤖 <b>Команды бота:</b>\n\n"
         "🍑 /pidor — выбрать пидора дня (раз в день)\n"
@@ -1123,6 +1562,9 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "📊 /quiplashstat — статистика побед в Quiplash\n\n"
         "🎬 /casting — кастинг: распределить участников по ролям сценария (раз в день)\n"
         "📊 /casting_stats — кто чаще всего получал главную роль\n\n"
+        "🟩 /wordle — угадай слово из 5 букв (отвечай реплаем)\n"
+        "🛑 /wordle_stop — остановить текущую игру\n"
+        "📊 /wordle_stats — статистика Wordle\n\n"
         "❓ /help — это сообщение"
     )
     await update.message.reply_text(text, parse_mode="HTML")
@@ -1144,10 +1586,14 @@ def main():
     app.add_handler(CommandHandler("quiplashstat", quiplashstat))
     app.add_handler(CommandHandler("casting", casting))
     app.add_handler(CommandHandler("casting_stats", casting_stats))
+    app.add_handler(CommandHandler("wordle", wordle))
+    app.add_handler(CommandHandler("wordle_stop", wordle_stop))
+    app.add_handler(CommandHandler("wordle_stats", wordle_stats))
     app.add_handler(PollAnswerHandler(poll_answer))
     app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, new_chat_members))
-    # Quiplash ответы — группа 1, чтобы работало параллельно с track_member
-    app.add_handler(MessageHandler(filters.REPLY & ~filters.COMMAND, quiplash_answer), group=1)
+    # Wordle и Quiplash ответы — группа 1, чтобы работало параллельно с track_member
+    app.add_handler(MessageHandler(filters.REPLY & filters.TEXT & ~filters.COMMAND, wordle_guess), group=1)
+    app.add_handler(MessageHandler(filters.REPLY & ~filters.COMMAND, quiplash_answer), group=2)
     app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, track_member))
 
     print("Бот запущен!")
