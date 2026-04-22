@@ -289,16 +289,27 @@ async def _finish_tournament_match(bot: Bot, chat_id: str, poll_id: str):
         data = load_data()
         poll_data = data.get("tournament_polls", {}).get(poll_id)
         if not poll_data or poll_data.get("finished"):
+            # Сигнализируем даже если уже завершён
+            event = info.get("event")
+            if event:
+                event.set()
             return
 
         poll_data["finished"] = True
         save_data(data)
+
+    match_idx = poll_data.get("match_idx")
+    round_idx = poll_data.get("round_idx")
 
     try:
         poll_result = await bot.stop_poll(
             chat_id=chat_id, message_id=poll_data["message_id"]
         )
     except Exception:
+        # Сигнализируем чтобы не зависнуть
+        event = info.get("event")
+        if event:
+            event.set()
         return
 
     options = poll_result.options
@@ -308,12 +319,15 @@ async def _finish_tournament_match(bot: Bot, chat_id: str, poll_id: str):
     winner_idx = random.choice(top)
     winner_id = poll_data["fighters"][winner_idx]
 
+    # Сохраняем winner прямо в tournament state — надёжнее чем в tournament_polls
     async with _data_lock:
         data = load_data()
-        pd = data.get("tournament_polls", {}).get(poll_id)
-        if pd:
-            pd["winner"] = winner_id
-            save_data(data)
+        chat = get_chat_data(data, chat_id)
+        tournament = chat.get("tournament")
+        if tournament:
+            rw = tournament.setdefault("round_winners", {})
+            rw[f"{round_idx}_{match_idx}"] = winner_id
+        save_data(data)
 
     # Сигнализируем что матч завершён
     event = info.get("event")
@@ -411,16 +425,11 @@ async def _run_tournament_round(bot: Bot, chat_id: str):
 
     round_results = []
     winners = []
+    rw = tournament.get("round_winners", {})
     for match_idx, match in enumerate(matches):
-        # Ищем poll для этого матча
-        winner_id = None
-        for pid, pd in data.get("tournament_polls", {}).items():
-            if (pd.get("chat_id") == chat_id
-                    and pd.get("round_idx") == round_idx
-                    and pd.get("match_idx") == match_idx):
-                winner_id = pd.get("winner")
-                break
-        if not winner_id:
+        key = f"{round_idx}_{match_idx}"
+        winner_id = rw.get(key)
+        if not winner_id or winner_id not in match:
             winner_id = random.choice(match)
         round_results.append({"match": match_idx, "winner": winner_id})
         winners.append(winner_id)
