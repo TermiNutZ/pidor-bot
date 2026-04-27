@@ -981,23 +981,24 @@ async def _run_casting(bot: Bot, chat_id: str):
         )
         await asyncio.sleep(3)
 
-    # Сохраняем результаты
-    data = load_data()
-    chat_data = get_chat_data(data, chat_id)
-    casting_results = chat_data.setdefault("casting_results", [])
-    today = str(date.today())
-    for r in results:
-        casting_results.append({
-            "scenario_id": scenario["id"],
-            "user_id": r["user_id"],
-            "role_id": r["role"]["id"],
-            "role_name": r["role"]["name"],
-            "role_type": r["role"]["type"],
-            "main": bool(r["role"].get("main")),
-            "votes": r["votes"],
-            "date": today,
-        })
-    save_data(data)
+    # Сохраняем результаты атомарно
+    async with _data_lock:
+        data = load_data()
+        chat_data = get_chat_data(data, chat_id)
+        casting_results = chat_data.setdefault("casting_results", [])
+        today = str(date.today())
+        for r in results:
+            casting_results.append({
+                "scenario_id": scenario["id"],
+                "user_id": r["user_id"],
+                "role_id": r["role"]["id"],
+                "role_name": r["role"]["name"],
+                "role_type": r["role"]["type"],
+                "main": bool(r["role"].get("main")),
+                "votes": r["votes"],
+                "date": today,
+            })
+        save_data(data)
 
     # Итоговое сообщение — главная роль первой
     main_result = next((r for r in results if r["role"].get("main")), None)
@@ -1027,45 +1028,48 @@ async def casting(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Кастинг уже идёт! Дождитесь окончания.")
         return
 
-    data = load_data()
-    chat = get_chat_data(data, chat_id)
+    # Атомарно читаем данные, регистрируем участника, выбираем сценарий
+    async with _data_lock:
+        data = load_data()
+        chat = get_chat_data(data, chat_id)
 
-    user = update.effective_user
-    is_new = await register_member(chat, str(user.id), get_display_name(user), user.username)
+        user = update.effective_user
+        is_new = await register_member(chat, str(user.id), get_display_name(user), user.username)
+
+        members = chat["members"]
+        if len(members) < 2:
+            save_data(data)
+            await update.message.reply_text("Нужно хотя бы 2 участника для кастинга!")
+            return
+
+        today = str(date.today())
+        if chat.get("last_casting") == today:
+            save_data(data)
+            await update.message.reply_text("Кастинг сегодня уже был! Приходи завтра 🎬")
+            return
+
+        # Выбираем сценарий, который ещё не разыгрывался в этом чате
+        used = set(chat.get("used_scenarios", []))
+        available_scenarios = [s for s in SCENARIOS if s["id"] not in used]
+        if not available_scenarios:
+            save_data(data)
+            await update.message.reply_text(
+                "🎬 Все сценарии кастинга уже сыграны!\n\n"
+                "Предложите новые идеи админу, чтобы добавить свежие сценарии 💡"
+            )
+            return
+
+        scenario = random.choice(available_scenarios)
+        chat.setdefault("used_scenarios", []).append(scenario["id"])
+        chat["last_casting"] = today
+        save_data(data)
+
+        all_member_ids = list(members.keys())
+
     if is_new:
         await update.message.reply_text(
             random.choice(WELCOME_MESSAGES).format(name=get_display_name(user))
         )
-
-    members = chat["members"]
-    if len(members) < 2:
-        await update.message.reply_text("Нужно хотя бы 2 участника для кастинга!")
-        save_data(data)
-        return
-
-    today = str(date.today())
-    if chat.get("last_casting") == today:
-        await update.message.reply_text("Кастинг сегодня уже был! Приходи завтра 🎬")
-        save_data(data)
-        return
-
-    # Выбираем сценарий, который ещё не разыгрывался в этом чате
-    used = set(chat.get("used_scenarios", []))
-    available_scenarios = [s for s in SCENARIOS if s["id"] not in used]
-    if not available_scenarios:
-        await update.message.reply_text(
-            "🎬 Все сценарии кастинга уже сыграны!\n\n"
-            "Предложите новые идеи админу, чтобы добавить свежие сценарии 💡"
-        )
-        save_data(data)
-        return
-
-    scenario = random.choice(available_scenarios)
-    chat.setdefault("used_scenarios", []).append(scenario["id"])
-    chat["last_casting"] = today
-    save_data(data)
-
-    all_member_ids = list(members.keys())
 
     # Главная роль достаётся последнему — голосуем только за остальные
     main_role = next((r for r in scenario["roles"] if r.get("main")), scenario["roles"][0])
