@@ -231,16 +231,15 @@ async def pidorstat(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ───────────────────────── BATTLE (TOURNAMENT) ─────────────────────────
 
-def _get_round_name(round_idx: int, total_rounds: int) -> str:
-    """Возвращает название раунда по индексу и общему числу раундов."""
-    remaining = total_rounds - round_idx
-    if remaining == 1:
+def _get_round_name(num_players: int) -> str:
+    """Возвращает название раунда по количеству участников в нём."""
+    if num_players <= 2:
         return "Финал"
-    if remaining == 2:
+    if num_players <= 4:
         return "Полуфинал"
-    if remaining == 3:
+    if num_players <= 8:
         return "Четвертьфинал"
-    return f"Раунд {round_idx + 1}"
+    return f"Раунд ({num_players} участников)"
 
 
 def _make_matches(player_ids: list[str]) -> list[list[str]]:
@@ -346,8 +345,8 @@ async def _run_tournament_round(bot: Bot, chat_id: str):
     round_idx = tournament["current_round"]
     matches = tournament["bracket"][round_idx]
     question = tournament["question"]
-    total_rounds = tournament["total_rounds"]
-    round_name = _get_round_name(round_idx, total_rounds)
+    num_players = sum(len(m) for m in matches)
+    round_name = _get_round_name(num_players)
     members = chat["members"]
     total_voters = len(members)
 
@@ -465,7 +464,7 @@ async def _run_tournament_round(bot: Bot, chat_id: str):
         next_matches = _make_matches(winners)
         tournament["bracket"].append(next_matches)
         tournament["current_round"] = round_idx + 1
-        next_round_name = _get_round_name(round_idx + 1, total_rounds)
+        next_round_name = _get_round_name(len(winners))
         lines.append(f"\nСледующий раунд: <b>{next_round_name}</b> — завтра!")
 
     save_data(data)
@@ -534,9 +533,8 @@ async def battle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Активный турнир
     if tournament and not tournament.get("finished"):
         if tournament.get("last_round_date") == today:
-            round_name = _get_round_name(
-                tournament["current_round"], tournament["total_rounds"]
-            )
+            current_matches = tournament["bracket"][tournament["current_round"]]
+            round_name = _get_round_name(sum(len(m) for m in current_matches))
             await update.message.reply_text(
                 f"Сегодняшний раунд ({round_name}) уже сыгран! "
                 f"Следующий — завтра ⚔️"
