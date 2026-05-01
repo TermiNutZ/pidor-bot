@@ -431,5 +431,75 @@
         {"id": "gingerbread","name": "Пряничный человечек",           "description": "НЕ МАРМЕЛАДНЫЕ ПУГОВИЦЫ!",                    "type": "shame",   "emoji": "🍪"}
       ]
     }
+  ],
+  "tierlist_topics": [
+    {
+      "id": "movies_2010s",
+      "name": "Фильмы 2010-х",
+      "emoji": "🎬",
+      "items": [
+        "Interstellar",
+        "Mad Max: Fury Road",
+        "Parasite",
+        "Drive",
+        "Whiplash",
+        "The Social Network",
+        "Blade Runner 2049",
+        "Joker",
+        "La La Land",
+        "John Wick"
+      ]
+    },
+    {
+      "id": "fastfood",
+      "name": "Фастфуд",
+      "emoji": "🍔",
+      "items": [
+        "Шаурма",
+        "Бургер",
+        "Пицца",
+        "Хот-дог",
+        "Наггетсы",
+        "Чебурек",
+        "Картошка фри",
+        "Сэндвич",
+        "Крылышки",
+        "Донер"
+      ]
+    },
+    {
+      "id": "games_2010s",
+      "name": "Игры 2010-х",
+      "emoji": "🎮",
+      "items": [
+        "The Witcher 3",
+        "GTA V",
+        "Red Dead Redemption 2",
+        "Dark Souls",
+        "Minecraft",
+        "Portal 2",
+        "Skyrim",
+        "Disco Elysium",
+        "Undertale",
+        "Hades"
+      ]
+    },
+    {
+      "id": "cartoons",
+      "name": "Мультфильмы детства",
+      "emoji": "🧸",
+      "items": [
+        "Шрек",
+        "Король Лев",
+        "Мадагаскар",
+        "Ледниковый период",
+        "Рататуй",
+        "В поисках Немо",
+        "Кунг-фу Панда",
+        "Тачки",
+        "Валли",
+        "Как приручить дракона"
+      ]
+    }
   ]
 }

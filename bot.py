@@ -23,6 +23,7 @@ WELCOME_MESSAGES    = _cfg["welcome_messages"]
 BATTLE_QUESTIONS    = _cfg["battle_questions"]
 SITUATIONS          = _cfg["quiplash_situations"]
 SCENARIOS           = _cfg["casting_scenarios"]
+TIERLIST_TOPICS     = _cfg["tierlist_topics"]
 
 WORDS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "words.txt")
 with open(WORDS_FILE, "r", encoding="utf-8") as _wf:
@@ -36,6 +37,7 @@ BATTLE_CLOSE_SECONDS = 1 * 60 * 60  # 1 час
 QUIPLASH_COLLECT_SECONDS = 60 * 60  # 1 час на сбор шуток
 QUIPLASH_VOTE_SECONDS = 60 * 60     # 1 час на голосование
 CASTING_ROLE_SECONDS = 10 * 60      # 10 минут на роль
+TIERLIST_VOTE_SECONDS = 3 * 60 * 60 # 3 часа на голосование по объекту
 MIN_VOTES = 3                        # минимум голосов для закрытия опроса
 
 # poll_id -> {"chat_id", "match_index", "event"} (активные опросы турнира)
@@ -65,8 +67,23 @@ _active_wordle: dict[str, dict] = {}
 # chat_id -> asyncio.Task (таймаут wordle)
 _wordle_timers: dict[str, asyncio.Task] = {}
 
+# chat_id -> состояние tierlist
+_active_tierlist: dict[str, dict] = {}
+
+# poll_id -> chat_id (для tierlist-опросов)
+_tierlist_poll_map: dict[str, str] = {}
+
 # Блокировка для атомарных read-modify-write циклов data.json
 _data_lock = asyncio.Lock()
+
+TIERLIST_OPTIONS = ["Лучший из лучших", "Харош", "Под пивко сойдет", "Срань"]
+TIERLIST_SCORES = {0: 3, 1: 2, 2: 1, 3: 0}  # option_index -> score
+TIERLIST_TIER_EMOJIS = {
+    "Лучший из лучших": "🏆",
+    "Харош": "👍",
+    "Под пивко сойдет": "🍺",
+    "Срань": "💩",
+}
 
 
 
@@ -593,6 +610,19 @@ async def poll_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 state["current_poll_voted"].append(user_id)
             if len(state["current_poll_voted"]) >= state["total_voters"]:
                 event = state.get("current_poll_event")
+                if event:
+                    event.set()
+        return
+
+    # Tierlist?
+    chat_id = _tierlist_poll_map.get(poll_id)
+    if chat_id:
+        state = _active_tierlist.get(chat_id)
+        if state and state.get("poll_id") == poll_id:
+            if user_id not in state["voted"]:
+                state["voted"].append(user_id)
+            if len(state["voted"]) >= state["total_voters"]:
+                event = state.get("event")
                 if event:
                     event.set()
         return
@@ -1137,6 +1167,352 @@ async def casting_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("\n".join(lines), parse_mode="HTML")
 
 
+# ───────────────────────── TIERLIST ───────────────────────
+
+def _score_to_tier(avg: float) -> str:
+    if avg >= 2.5:
+        return "Лучший из лучших"
+    if avg >= 1.5:
+        return "Харош"
+    if avg >= 0.5:
+        return "Под пивко сойдет"
+    return "Срань"
+
+
+async def _run_tierlist_poll(bot: Bot, chat_id: str, state: dict, item_name: str, item_index: int, total_items: int):
+    """Проводит одно голосование за объект. Возвращает dict с результатом."""
+    topic = state["topic"]
+
+    await bot.send_message(
+        chat_id=chat_id,
+        text=f"{topic['emoji']} Объект {item_index + 1}/{total_items}\n"
+             f"<b>{item_name}</b>\n\n"
+             f"Куда кидаем?",
+        parse_mode="HTML",
+    )
+    await asyncio.sleep(1)
+
+    poll_msg = await bot.send_poll(
+        chat_id=chat_id,
+        question=f"{topic['emoji']} {item_name}",
+        options=TIERLIST_OPTIONS,
+        is_anonymous=False,
+    )
+
+    poll_id = poll_msg.poll.id
+    event = asyncio.Event()
+
+    state["poll_id"] = poll_id
+    state["poll_message_id"] = poll_msg.message_id
+    state["poll_started_at"] = datetime.now().isoformat()
+    state["voted"] = []
+    state["event"] = event
+    _tierlist_poll_map[poll_id] = chat_id
+
+    # Сохраняем poll state в data.json для восстановления после рестарта
+    async with _data_lock:
+        data = load_data()
+        chat_data = get_chat_data(data, chat_id)
+        run = chat_data.get("tierlist_run", {})
+        run["poll_id"] = poll_id
+        run["poll_message_id"] = poll_msg.message_id
+        run["poll_started_at"] = state["poll_started_at"]
+        run["current_item_index"] = item_index
+        chat_data["tierlist_run"] = run
+        save_data(data)
+
+    # Ждём таймаут или все проголосовали
+    try:
+        await asyncio.wait_for(event.wait(), timeout=TIERLIST_VOTE_SECONDS)
+    except asyncio.TimeoutError:
+        # Таймер истёк — ждём минимум голосов
+        while len(state.get("voted", [])) < min(MIN_VOTES, state["total_voters"]):
+            await asyncio.sleep(15)
+
+    _tierlist_poll_map.pop(poll_id, None)
+
+    # Закрываем poll и собираем результаты
+    try:
+        poll_result = await bot.stop_poll(chat_id=chat_id, message_id=poll_msg.message_id)
+    except Exception:
+        return {"item": item_name, "avg": 0, "votes": 0, "tier": "Срань", "low_votes": True}
+
+    options = poll_result.options
+    total_votes = sum(o.voter_count for o in options)
+
+    if total_votes == 0:
+        return {"item": item_name, "avg": 0, "votes": 0, "tier": "Срань", "low_votes": True}
+
+    # Считаем средний балл
+    weighted_sum = sum(TIERLIST_SCORES[i] * o.voter_count for i, o in enumerate(options))
+    avg = round(weighted_sum / total_votes, 2)
+    tier = _score_to_tier(avg)
+    low_votes = total_votes < MIN_VOTES
+
+    return {"item": item_name, "avg": avg, "votes": total_votes, "tier": tier, "low_votes": low_votes}
+
+
+async def _finalize_tierlist(bot: Bot, chat_id: str, topic: dict, results: list):
+    """Публикует финальный тирлист и сохраняет историю."""
+    tiers = {}
+    for tier_name in TIERLIST_OPTIONS:
+        tiers[tier_name] = []
+    for r in results:
+        tiers[r["tier"]].append(r)
+
+    lines = [f"📊 <b>НАРОДНЫЙ ВЕРДИКТ: {topic['name'].upper()}</b>\n"]
+
+    for tier_name in TIERLIST_OPTIONS:
+        emoji = TIERLIST_TIER_EMOJIS[tier_name]
+        lines.append(f"\n{emoji} <b>{tier_name}</b>")
+        items = tiers[tier_name]
+        if items:
+            items.sort(key=lambda x: x["avg"], reverse=True)
+            for r in items:
+                suffix = " ⚠️" if r.get("low_votes") else ""
+                lines.append(f"· {r['item']} ({r['avg']}){suffix}")
+        else:
+            lines.append("— пусто —")
+
+    low_count = sum(1 for r in results if r.get("low_votes"))
+    if low_count:
+        lines.append(f"\n⚠️ = мало голосов (менее {MIN_VOTES})")
+
+    await bot.send_message(chat_id=chat_id, text="\n".join(lines), parse_mode="HTML")
+
+    # Сохраняем в историю
+    async with _data_lock:
+        data = load_data()
+        chat_data = get_chat_data(data, chat_id)
+        history = chat_data.setdefault("tierlist_history", [])
+        history.append({
+            "topic_id": topic["id"],
+            "date": str(date.today()),
+            "results": results,
+        })
+        run = chat_data.get("tierlist_run", {})
+        run["status"] = "completed"
+        chat_data["tierlist_run"] = run
+        save_data(data)
+
+    _active_tierlist.pop(chat_id, None)
+
+
+async def _run_tierlist(bot: Bot, chat_id: str, start_index: int = 0):
+    """Основной цикл тирлиста — последовательно голосуем за каждый объект."""
+    state = _active_tierlist.get(chat_id)
+    if not state:
+        return
+
+    topic = state["topic"]
+    items = topic["items"]
+    total = len(items)
+    results = state.get("results", [])
+
+    for i in range(start_index, total):
+        state = _active_tierlist.get(chat_id)
+        if not state:
+            return
+
+        result = await _run_tierlist_poll(bot, chat_id, state, items[i], i, total)
+        results.append(result)
+        state["results"] = results
+
+        # Промежуточный итог
+        low_mark = " (мало голосов)" if result.get("low_votes") else ""
+        emoji = "⚠️" if result.get("low_votes") else "✅"
+        await bot.send_message(
+            chat_id=chat_id,
+            text=f"{emoji} <b>{result['item']}</b> → <b>{result['tier']}</b>{low_mark}\n"
+                 f"Голосов: {result['votes']} · Средняя: {result['avg']}",
+            parse_mode="HTML",
+        )
+
+        # Сохраняем прогресс
+        async with _data_lock:
+            data = load_data()
+            chat_data = get_chat_data(data, chat_id)
+            run = chat_data.get("tierlist_run", {})
+            run["results"] = results
+            run["current_item_index"] = i + 1
+            chat_data["tierlist_run"] = run
+            save_data(data)
+
+        if i < total - 1:
+            await asyncio.sleep(5)
+
+    await _finalize_tierlist(bot, chat_id, topic, results)
+
+
+async def tierlist(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_chat.type == "private":
+        await update.message.reply_text("Эта команда работает только в групповых чатах!")
+        return
+
+    chat_id = str(update.effective_chat.id)
+
+    if chat_id in _active_tierlist:
+        state = _active_tierlist[chat_id]
+        topic = state["topic"]
+        idx = len(state.get("results", []))
+        total = len(topic["items"])
+        item = topic["items"][idx] if idx < total else "—"
+        await update.message.reply_text(
+            f"Тирлист уже идёт!\n\n"
+            f"Тема: <b>{topic['name']}</b>\n"
+            f"Сейчас голосуем: <b>{item}</b> ({idx + 1}/{total})",
+            parse_mode="HTML",
+        )
+        return
+
+    async with _data_lock:
+        data = load_data()
+        chat = get_chat_data(data, chat_id)
+
+        user = update.effective_user
+        is_new = await register_member(chat, str(user.id), get_display_name(user), user.username)
+
+        members = chat["members"]
+        if len(members) < 2:
+            save_data(data)
+            await update.message.reply_text("Нужно хотя бы 2 участника!")
+            return
+
+        today = str(date.today())
+        if chat.get("last_tierlist") == today:
+            save_data(data)
+            await update.message.reply_text("Тирлист сегодня уже запускали! Приходи завтра 📊")
+            return
+
+        # Выбираем тему
+        used = set(chat.get("used_tierlist_topics", []))
+        available = [t for t in TIERLIST_TOPICS if t["id"] not in used]
+        if not available:
+            chat["used_tierlist_topics"] = []
+            available = list(TIERLIST_TOPICS)
+
+        topic = random.choice(available)
+        chat.setdefault("used_tierlist_topics", []).append(topic["id"])
+        chat["last_tierlist"] = today
+        chat["tierlist_run"] = {
+            "topic_id": topic["id"],
+            "status": "active",
+            "current_item_index": 0,
+            "poll_id": None,
+            "poll_message_id": None,
+            "poll_started_at": None,
+            "results": [],
+        }
+        save_data(data)
+
+    if is_new:
+        await update.message.reply_text(
+            random.choice(WELCOME_MESSAGES).format(name=get_display_name(user))
+        )
+
+    _active_tierlist[chat_id] = {
+        "topic": topic,
+        "results": [],
+        "total_voters": len(members),
+        "poll_id": None,
+        "poll_message_id": None,
+        "poll_started_at": None,
+        "voted": [],
+        "event": None,
+    }
+
+    await update.message.reply_text(
+        f"📊 <b>ТИРЛИСТ: {topic['name'].upper()}</b>\n\n"
+        f"Коллективный суд вкуса начинается!\n"
+        f"10 объектов. На каждый — 3 часа.\n"
+        f"В конце соберём народный вердикт.",
+        parse_mode="HTML",
+    )
+    await asyncio.sleep(2)
+
+    asyncio.create_task(_run_tierlist(context.bot, chat_id))
+
+
+async def _restore_tierlist(app):
+    """Восстанавливает активные тирлисты после рестарта бота."""
+    data = load_data()
+    bot_instance = app.bot
+
+    for chat_id, chat_data in data.items():
+        if not isinstance(chat_data, dict):
+            continue
+        run = chat_data.get("tierlist_run")
+        if not run or run.get("status") != "active":
+            continue
+
+        topic_id = run.get("topic_id")
+        topic = next((t for t in TIERLIST_TOPICS if t["id"] == topic_id), None)
+        if not topic:
+            run["status"] = "completed"
+            save_data(data)
+            continue
+
+        members = chat_data.get("members", {})
+        start_index = run.get("current_item_index", 0)
+        results = run.get("results", [])
+
+        # Если есть открытый poll — попробуем закрыть
+        if run.get("poll_id") and run.get("poll_message_id"):
+            try:
+                poll_result = await bot_instance.stop_poll(
+                    chat_id=chat_id, message_id=run["poll_message_id"]
+                )
+                options = poll_result.options
+                total_votes = sum(o.voter_count for o in options)
+                item_name = topic["items"][start_index] if start_index < len(topic["items"]) else "?"
+
+                if total_votes > 0:
+                    weighted_sum = sum(TIERLIST_SCORES[i] * o.voter_count for i, o in enumerate(options))
+                    avg = round(weighted_sum / total_votes, 2)
+                    tier = _score_to_tier(avg)
+                else:
+                    avg, tier = 0, "Срань"
+
+                results.append({
+                    "item": item_name, "avg": avg, "votes": total_votes,
+                    "tier": tier, "low_votes": total_votes < MIN_VOTES,
+                })
+                start_index += 1
+
+                await bot_instance.send_message(
+                    chat_id=chat_id,
+                    text=f"🔄 Бот перезапустился. Продолжаем тирлист!\n\n"
+                         f"✅ <b>{item_name}</b> → <b>{tier}</b>\n"
+                         f"Голосов: {total_votes} · Средняя: {avg}",
+                    parse_mode="HTML",
+                )
+            except Exception:
+                # Poll уже закрыт или недоступен — пропускаем объект
+                start_index += 1
+
+        if start_index >= len(topic["items"]):
+            await _finalize_tierlist(bot_instance, chat_id, topic, results)
+            continue
+
+        # Восстанавливаем in-memory state и продолжаем
+        _active_tierlist[chat_id] = {
+            "topic": topic,
+            "results": results,
+            "total_voters": len(members),
+            "poll_id": None,
+            "poll_message_id": None,
+            "poll_started_at": None,
+            "voted": [],
+            "event": None,
+        }
+
+        run["results"] = results
+        run["current_item_index"] = start_index
+        save_data(data)
+
+        asyncio.create_task(_run_tierlist(bot_instance, chat_id, start_index))
+
+
 # ───────────────────────── WORDLE ─────────────────────────
 
 def _normalize(word: str) -> str:
@@ -1573,6 +1949,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "📊 /quiplashstat — статистика побед в Quiplash\n\n"
         "🎬 /casting — кастинг: распределить участников по ролям сценария (раз в день)\n"
         "📊 /casting_stats — кто чаще всего получал главную роль\n\n"
+        "📊 /tierlist — коллективный тирлист: оцениваем объекты всем чатом (раз в день)\n\n"
         "🟩 /wordle — угадай слово из 5 букв (отвечай реплаем)\n"
         "🛑 /wordle_stop — остановить текущую игру\n"
         "📊 /wordle_stats — статистика Wordle\n\n"
@@ -1597,6 +1974,7 @@ def main():
     app.add_handler(CommandHandler("quiplashstat", quiplashstat))
     app.add_handler(CommandHandler("casting", casting))
     app.add_handler(CommandHandler("casting_stats", casting_stats))
+    app.add_handler(CommandHandler("tierlist", tierlist))
     app.add_handler(CommandHandler("wordle", wordle))
     app.add_handler(CommandHandler("wordle_stop", wordle_stop))
     app.add_handler(CommandHandler("wordle_stats", wordle_stats))
@@ -1606,6 +1984,8 @@ def main():
     app.add_handler(MessageHandler(filters.REPLY & filters.TEXT & ~filters.COMMAND, wordle_guess), group=1)
     app.add_handler(MessageHandler(filters.REPLY & ~filters.COMMAND, quiplash_answer), group=2)
     app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, track_member))
+
+    app.post_init = _restore_tierlist
 
     print("Бот запущен!")
     app.run_polling()
