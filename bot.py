@@ -3,7 +3,7 @@ import json
 import math
 import os
 import random
-from datetime import date, datetime
+from datetime import date, datetime, timezone, timedelta
 from telegram import Bot, ReactionTypeEmoji, Update
 from telegram.ext import (
     ApplicationBuilder, CommandHandler, MessageHandler,
@@ -37,7 +37,9 @@ BATTLE_CLOSE_SECONDS = 1 * 60 * 60  # 1 час
 QUIPLASH_COLLECT_SECONDS = 60 * 60  # 1 час на сбор шуток
 QUIPLASH_VOTE_SECONDS = 60 * 60     # 1 час на голосование
 CASTING_ROLE_SECONDS = 10 * 60      # 10 минут на роль
-TIERLIST_VOTE_SECONDS = 3 * 60 * 60 # 3 часа на голосование по объекту
+TIERLIST_VOTE_SECONDS = 2 * 60 * 60 # 2 часа на голосование по объекту
+TIERLIST_QUIET_START = 0   # тихие часы: начало (0:00 МСК)
+TIERLIST_QUIET_END = 10    # тихие часы: конец (10:00 МСК)
 MIN_VOTES = 3                        # минимум голосов для закрытия опроса
 
 # poll_id -> {"chat_id", "match_index", "event"} (активные опросы турнира)
@@ -1179,6 +1181,19 @@ def _score_to_tier(avg: float) -> str:
     return "Срань"
 
 
+_MSK = timezone(timedelta(hours=3))
+
+
+async def _wait_for_quiet_hours():
+    """Ждёт окончания тихих часов (00:00–10:00 МСК) перед отправкой опроса."""
+    now = datetime.now(_MSK)
+    if TIERLIST_QUIET_START <= now.hour < TIERLIST_QUIET_END:
+        # Считаем сколько ждать до TIERLIST_QUIET_END
+        wake = now.replace(hour=TIERLIST_QUIET_END, minute=0, second=0, microsecond=0)
+        wait_seconds = (wake - now).total_seconds()
+        await asyncio.sleep(wait_seconds)
+
+
 async def _run_tierlist_poll(bot: Bot, chat_id: str, state: dict, item_name: str, item_index: int, total_items: int):
     """Проводит одно голосование за объект. Возвращает dict с результатом."""
     topic = state["topic"]
@@ -1314,6 +1329,8 @@ async def _run_tierlist(bot: Bot, chat_id: str, start_index: int = 0):
         if not state:
             return
 
+        await _wait_for_quiet_hours()
+
         result = await _run_tierlist_poll(bot, chat_id, state, items[i], i, total)
         results.append(result)
         state["results"] = results
@@ -1424,7 +1441,8 @@ async def tierlist(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         f"📊 <b>ТИРЛИСТ: {topic['name'].upper()}</b>\n\n"
         f"Коллективный суд вкуса начинается!\n"
-        f"10 объектов. На каждый — 3 часа.\n"
+        f"10 объектов. На каждый — 2 часа.\n"
+        f"Ночью (00:00–10:00 МСК) бот не беспокоит.\n"
         f"В конце соберём народный вердикт.",
         parse_mode="HTML",
     )
