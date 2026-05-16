@@ -568,6 +568,74 @@
         "Биатлон",
         "Шахматы"
       ]
+    },
+    {
+      "id": "online_games",
+      "name": "Онлайн-игры",
+      "emoji": "🖥️",
+      "items": [
+        "Dota 2",
+        "CS:GO",
+        "PUBG",
+        "Fortnite",
+        "Overwatch",
+        "World of Warcraft",
+        "League of Legends",
+        "Apex Legends",
+        "World of Tanks",
+        "Genshin Impact"
+      ]
+    },
+    {
+      "id": "russian_rap",
+      "name": "Русские реперы",
+      "emoji": "🎤",
+      "items": [
+        "Оксимирон",
+        "Anacondaz",
+        "Noize MC",
+        "Хаски",
+        "Скриптонит",
+        "Баста",
+        "Miyagi",
+        "Morgenshtern",
+        "Face",
+        "ATL"
+      ]
+    },
+    {
+      "id": "movies_2010s_v2",
+      "name": "Фильмы 2010-х ч.2",
+      "emoji": "🎬",
+      "items": [
+        "Inception",
+        "Django Unchained",
+        "The Wolf of Wall Street",
+        "Shutter Island",
+        "Gone Girl",
+        "Sicario",
+        "Nightcrawler",
+        "Her",
+        "Arrival",
+        "The Grand Budapest Hotel"
+      ]
+    },
+    {
+      "id": "series_2010s_v2",
+      "name": "Сериалы ч.2",
+      "emoji": "📺",
+      "items": [
+        "The Wire",
+        "Better Call Saul",
+        "Succession",
+        "Dark",
+        "The Boys",
+        "Sherlock",
+        "Mr. Robot",
+        "Ozark",
+        "Arcane",
+        "The Last of Us"
+      ]
     }
   ]
 }
