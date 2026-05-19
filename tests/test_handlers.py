@@ -334,7 +334,7 @@ class TestTierlist:
         assert chat["last_tierlist"] == str(date.today())
 
     @pytest.mark.asyncio
-    async def test_topic_rotation(self, data_file):
+    async def test_all_topics_played(self, data_file):
         all_ids = [t["id"] for t in bot.TIERLIST_TOPICS]
         data = {"-1001": {
             "members": {
@@ -350,8 +350,9 @@ class TestTierlist:
         ctx = make_context()
         await bot.tierlist(update, ctx)
 
-        # Должен сбросить used и выбрать тему
-        assert "-1001" in bot._active_tierlist
+        calls = [str(c) for c in update.message.reply_text.call_args_list]
+        assert any("Все темы" in c for c in calls)
+        assert "-1001" not in bot._active_tierlist
 
 
 class TestBattle:

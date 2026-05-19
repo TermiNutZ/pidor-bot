@@ -1405,8 +1405,12 @@ async def tierlist(update: Update, context: ContextTypes.DEFAULT_TYPE):
         used = set(chat.get("used_tierlist_topics", []))
         available = [t for t in TIERLIST_TOPICS if t["id"] not in used]
         if not available:
-            chat["used_tierlist_topics"] = []
-            available = list(TIERLIST_TOPICS)
+            save_data(data)
+            await update.message.reply_text(
+                "📊 Все темы тирлистов уже сыграны!\n\n"
+                "Предложите новые идеи, чтобы добавить свежие темы 💡"
+            )
+            return
 
         topic = random.choice(available)
         chat.setdefault("used_tierlist_topics", []).append(topic["id"])
